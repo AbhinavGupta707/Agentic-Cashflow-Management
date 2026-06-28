@@ -37,6 +37,31 @@ Known runtime requirement:
 
 - RDS Data API calls must retry `DatabaseResumingException` because Aurora can resume from 0 ACU after idle.
 
+## Worker Sessions
+
+Launch base commit:
+
+```text
+d0df589ffd1b59b28ba81e096c748f58da47a76e
+```
+
+Visible Codex worker threads:
+
+| Lane | Branch | Worktree | Thread ID |
+| --- | --- | --- | --- |
+| App Scaffold | `cp1/app-scaffold` | `/Users/abhinavgupta/Desktop/H0 AWS Hack/Cash Management /Agentic-Cashflow-Management-cp1-app` | `019f1097-ab5a-7c50-a476-ae6ea32b0e1e` |
+| Aurora Schema | `cp1/aurora-schema` | `/Users/abhinavgupta/Desktop/H0 AWS Hack/Cash Management /Agentic-Cashflow-Management-cp1-schema` | `019f1097-fa36-7621-8189-354e09284b4c` |
+| Data API Repository And Seed | `cp1/data-api-repository` | `/Users/abhinavgupta/Desktop/H0 AWS Hack/Cash Management /Agentic-Cashflow-Management-cp1-data` | `019f1098-5101-7a82-a391-6285592df249` |
+| QA And Docs | `cp1/qa-docs` | `/Users/abhinavgupta/Desktop/H0 AWS Hack/Cash Management /Agentic-Cashflow-Management-cp1-qa` | `019f1098-967c-7350-90d2-5171cb8cdbc3` |
+
+All worker worktrees use the canonical remote:
+
+```text
+https://github.com/AbhinavGupta707/Agentic-Cashflow-Management.git
+```
+
+The old public project name and URL were scanned out of the main repository and all worker worktrees before launch.
+
 ## Checkpoint 1 Outcome
 
 By the end of checkpoint 1:

@@ -18,10 +18,10 @@ Do not use or modify:
 https://github.com/AbhinavGupta707/RunwayOps.git
 ```
 
-Checkpoint 1 base commit:
+Checkpoint 1 launch base:
 
 ```text
-6f8ff72
+Use the exact `main` commit recorded by the orchestrator at worktree launch.
 ```
 
 Infrastructure ready:

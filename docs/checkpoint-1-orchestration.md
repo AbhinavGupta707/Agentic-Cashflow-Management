@@ -12,11 +12,7 @@ Repository:
 https://github.com/AbhinavGupta707/Agentic-Cashflow-Management.git
 ```
 
-Do not use or modify:
-
-```text
-https://github.com/AbhinavGupta707/RunwayOps.git
-```
+Do not use or modify any external legacy repository.
 
 Checkpoint 1 launch base:
 
@@ -51,7 +47,7 @@ By the end of checkpoint 1:
 - Seed scripts can populate a sample company/case into Aurora.
 - A repository/API read path can load sample case state from Aurora through RDS Data API.
 - `npm run typecheck` and `npm run build` pass after integration.
-- No MongoDB dependency or RunwayOps repo dependency exists.
+- No MongoDB dependency or external legacy repo dependency exists.
 
 ## Lane Split
 
@@ -175,7 +171,7 @@ Requirements:
 - Build repository functions to read sample company/case state from Aurora.
 - Build seed data for a demo company, customers, invoices, obligations, forecast points, actions, and memory facts.
 - Add a simple API route for current case state.
-- Do not use MongoDB or old RunwayOps code.
+- Do not use MongoDB or external legacy code.
 - Avoid package root edits unless absolutely required; document dependency needs in handoff.
 
 Verification:
@@ -236,12 +232,11 @@ npm install
 npm run typecheck
 npm run build
 git diff --check
-rg -n "MongoDB|MONGODB|RunwayOps|runway_ops" .
+rg -n "MongoDB|MONGODB" .
 ```
 
 Expected findings:
 
-- `RunwayOps` may appear only in explicit boundary warnings, never as implementation source.
 - MongoDB should not appear in runtime implementation.
 
 Live AWS checks depend on available local AWS credentials. If unavailable locally, use dry-run scripts and verify production env in Vercel.

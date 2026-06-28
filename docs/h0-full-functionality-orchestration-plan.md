@@ -4,7 +4,7 @@ Date: 2026-06-29
 
 Canonical repo: `AbhinavGupta707/Agentic-Cashflow-Management`
 
-Do not use `AbhinavGupta707/RunwayOps`; it is a separate project.
+Do not use any external legacy repository. This repository is the only project workspace.
 
 ## Product Goal
 
@@ -80,7 +80,7 @@ Run sequential checkpoints. Within each checkpoint, use 2 to 4 parallel lanes. D
 Outcome:
 
 - Canonical repo is `Agentic-Cashflow-Management`.
-- Old `RunwayOps` repo is not used.
+- External legacy repositories are not used.
 - Vercel project exists and local folder is linked.
 - AWS Aurora/S3/database setup is verified.
 - OIDC role is created, production-scoped, attached to the runtime policy, and wired into Vercel production.
@@ -95,7 +95,7 @@ Verification:
 Non-goals:
 
 - No product app implementation.
-- No changes to old RunwayOps repo.
+- No changes outside this repository.
 
 ### Checkpoint 1: App Scaffold, Aurora Foundation, And Data Model
 
@@ -198,7 +198,7 @@ Read first:
 - Parent product spec if explicitly provided by the user as product context only
 
 Important boundary:
-- Do not use or modify AbhinavGupta707/RunwayOps.
+- Do not use or modify any external legacy repository.
 - Work only in AbhinavGupta707/Agentic-Cashflow-Management.
 
 Goal:

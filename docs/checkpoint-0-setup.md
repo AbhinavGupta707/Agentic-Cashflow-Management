@@ -12,13 +12,7 @@ Canonical repository:
 https://github.com/AbhinavGupta707/Agentic-Cashflow-Management.git
 ```
 
-Do not use or modify:
-
-```text
-https://github.com/AbhinavGupta707/RunwayOps.git
-```
-
-The old RunwayOps project is separate. This repo starts clean and checkpoint 1 should scaffold/implement the product here.
+Do not use or modify any external legacy repository. This repo starts clean and checkpoint 1 should scaffold/implement the product here.
 
 ## Local State
 

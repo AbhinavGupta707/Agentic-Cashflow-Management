@@ -6,7 +6,7 @@ The product helps a small business ingest invoices, customer data, obligations, 
 
 ## Canonical Repository
 
-This repository is separate from `AbhinavGupta707/RunwayOps`.
+This repository is the canonical project workspace.
 
 ```text
 GitHub: https://github.com/AbhinavGupta707/Agentic-Cashflow-Management.git
@@ -22,4 +22,3 @@ Checkpoint 0 setup is documented in:
 - `docs/h0-full-functionality-orchestration-plan.md`
 
 Checkpoint 1 should scaffold the app and implement the Aurora foundation from this clean repository.
-

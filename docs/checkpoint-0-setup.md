@@ -35,6 +35,7 @@ Current state:
 - Vercel project is created and linked.
 - No application code has been scaffolded yet.
 - Checkpoint 1 should include app scaffolding plus Aurora foundation.
+- Checkpoint 0 baseline commit: `077561f317134b9bab56c6326372300ccbfeca66`.
 
 ## Vercel
 
@@ -50,6 +51,17 @@ Vercel project ID: prj_9bmLuB7kt2BcOOOHzHtpaJajFrWb
 Local `.vercel/project.json` exists and is ignored by Git.
 
 Vercel Git connection still needs to be confirmed after the first commit exists in this repository.
+
+Production environment variables verified in Vercel:
+
+- `AWS_ROLE_ARN`
+- `AWS_REGION`
+- `AWS_ACCOUNT_ID`
+- `AURORA_CLUSTER_ARN`
+- `AURORA_SECRET_ARN`
+- `AURORA_DATABASE`
+- `AWS_S3_BUCKET`
+- non-secret runtime defaults
 
 ## AWS
 
@@ -75,6 +87,7 @@ Aurora auto-pause: 0 ACU, resumes on demand
 Cash Management app user: cash_management_app
 Cash Management app secret ARN: arn:aws:secretsmanager:eu-west-2:222634407676:secret:h0/cash-management/rds/app-user-DHvZHY
 Cash Management runtime policy ARN: arn:aws:iam::222634407676:policy/h0-cash-management-runtime-policy
+Cash Management Vercel runtime role ARN: arn:aws:iam::222634407676:role/h0-cash-management-vercel-runtime-role
 S3 bucket: h0-cash-management-assets-222634407676-eu-west-2
 ```
 
@@ -92,19 +105,20 @@ Implementation requirement:
 
 ## Vercel OIDC
 
-Vercel project creation is done. AWS OIDC role creation is still pending because this local shell does not have AWS credentials and IAM Identity Center was intentionally not enabled to preserve the AWS Free plan.
+Vercel project creation is done. AWS OIDC role creation is done and wired into Vercel production.
 
-Create through AWS Console or CloudShell:
+Confirmed state:
 
 ```text
-OIDC provider URL: https://oidc.vercel.com/abhinavs-projects-f1cef581
-Default audience: https://vercel.com/abhinavs-projects-f1cef581
-AWS SDK audience: sts.amazonaws.com
+OIDC provider: oidc.vercel.com/abhinavs-projects-f1cef581
+Audience: sts.amazonaws.com
 Role name: h0-cash-management-vercel-runtime-role
-Attach policy: h0-cash-management-runtime-policy
+Role ARN: arn:aws:iam::222634407676:role/h0-cash-management-vercel-runtime-role
+Attached policy: arn:aws:iam::222634407676:policy/h0-cash-management-runtime-policy
+Trust scope: owner:abhinavs-projects-f1cef581:project:agentic-cashflow-management:environment:production
 ```
 
-Recommended strict production trust policy:
+Production trust policy shape:
 
 ```json
 {
@@ -129,9 +143,13 @@ Recommended strict production trust policy:
 
 After role creation:
 
-1. Set `AWS_ROLE_ARN` in Vercel.
-2. Set `AWS_REGION=eu-west-2` in Vercel.
-3. Set Aurora/S3/provider env vars in Vercel.
+1. `AWS_ROLE_ARN` is set in Vercel production.
+2. `AWS_REGION=eu-west-2` is set in Vercel production.
+3. Aurora/S3 runtime env vars are set in Vercel production.
+
+Important restriction:
+
+- The AWS role is production-only. Preview/development deployments cannot assume it unless separate trust entries or roles are created.
 
 Docs:
 
@@ -141,9 +159,13 @@ Docs:
 
 ## Checkpoint 0 Verdict
 
-Checkpoint 0 is ready for user confirmation with one non-blocking setup item:
+Checkpoint 0 is complete for checkpoint 1 orchestration.
 
-- AWS OIDC provider/role still needs creation in AWS after the Vercel project exists.
+Remaining non-blocking provider items:
+
+- Fireworks API key/model IDs.
+- LangSmith key if tracing is used during checkpoint 3.
+- Google/Gmail OAuth credentials and encryption key.
+- ElevenLabs/Twilio keys for voice/SMS paths.
 
 Checkpoint 1 can proceed from this clean repository. The first checkpoint must include app scaffolding because this repository was empty at clone time.
-

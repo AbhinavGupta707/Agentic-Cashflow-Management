@@ -68,6 +68,7 @@ S3 bucket: h0-cash-management-assets-222634407676-eu-west-2
 Vercel project: agentic-cashflow-management
 Vercel project ID: prj_9bmLuB7kt2BcOOOHzHtpaJajFrWb
 Vercel org ID: team_GIT6RlxBXVjXuY0g9nIeypsQ
+AWS runtime role ARN: arn:aws:iam::222634407676:role/h0-cash-management-vercel-runtime-role
 ```
 
 ## Checkpoint Strategy
@@ -82,13 +83,14 @@ Outcome:
 - Old `RunwayOps` repo is not used.
 - Vercel project exists and local folder is linked.
 - AWS Aurora/S3/database setup is verified.
-- OIDC role creation handoff is documented.
+- OIDC role is created, production-scoped, attached to the runtime policy, and wired into Vercel production.
 
 Verification:
 
 - `git status --short --branch`
 - `.vercel/project.json` exists locally and is ignored
 - docs/checkpoint-0-setup.md is current
+- `vercel env list production` shows encrypted AWS runtime variables
 
 Non-goals:
 

@@ -62,6 +62,29 @@ https://github.com/AbhinavGupta707/Agentic-Cashflow-Management.git
 
 The old public project name and URL were scanned out of the main repository and all worker worktrees before launch.
 
+## Monitor Automation
+
+The original chat heartbeat automation was paused because heartbeats are attached to a chat thread and do not interrupt an already-running thread. The scheduled heartbeat could show a past next-run time with no `Last run` when the orchestrator chat was active at the due time.
+
+Active monitor:
+
+```text
+Automation ID: cp1-worktree-orchestration-cron
+Kind: cron
+Name: CP1 Worktree Orchestration Cron
+Workspace: /Users/abhinavgupta/Desktop/H0 AWS Hack/Cash Management /Agentic-Cashflow-Management
+Runs: standalone local workspace job
+Cadence: approximately every 2 minutes
+```
+
+Paused legacy monitor:
+
+```text
+Automation ID: cp1-worktree-orchestration-monitor
+Kind: heartbeat
+Reason: chat heartbeats are not reliable for long-running active orchestration turns
+```
+
 ## Checkpoint 1 Outcome
 
 By the end of checkpoint 1:

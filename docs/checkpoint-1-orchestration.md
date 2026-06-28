@@ -21,7 +21,7 @@ https://github.com/AbhinavGupta707/RunwayOps.git
 Checkpoint 1 base commit:
 
 ```text
-25ef72d
+6f8ff72
 ```
 
 Infrastructure ready:
@@ -258,4 +258,3 @@ Each worker must report:
 - passing/failing checks
 - env/migration/package notes
 - risks and integration instructions
-

@@ -60,6 +60,20 @@ Recommended lanes after explicit approval:
 2. Execution, Memory, And Product UI Polish.
 3. QA, Submission Package, And Demo Evidence.
 
+## Launch Registry
+
+Launch approved by the user on 2026-06-29 with:
+
+```text
+Launch Checkpoint 8 final product execution with the three planned worker lanes.
+```
+
+Worker setup used baseline commits:
+
+- `dfa42d2 docs: plan checkpoint 8 final product push`
+- `b14b0ee docs: tighten checkpoint 8 demo script`
+- `85da28a docs: record checkpoint 8 worker lanes` for the master registry
+
 ## Worker Lanes
 
 Launched from master thread `019f10e1-1751-7640-834d-5ab6ec3ea572` on

@@ -16,6 +16,7 @@ import type { ProviderStatus } from "../db/provider-status-contract";
 import { scopedIdempotencyKey, stableHash } from "../ingestion/idempotency";
 import { createFireworksProvider, type FireworksProvider } from "../providers/fireworks";
 import { getLangSmithTracingStatus } from "../providers/langsmith";
+import { createTwilioProvider } from "../providers/twilio";
 import { decideApproval } from "./cp4-communication";
 
 type RepositoryOptions = {
@@ -1594,11 +1595,15 @@ function buildProviderState(options: RepositoryOptions): ProductProviderState {
   const now = new Date();
   const env = options.env ?? process.env;
   const fireworksProvider = options.fireworksProvider ?? createFireworksProvider({ env });
-  const voiceMissing = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"].filter((key) => !present(env[key]));
+  const twilioStatus = createTwilioProvider({ env }).getStatus(now);
+  const voiceMissing = [...twilioStatus.missingEnv];
+  const testTargetConfigured = present(env.TWILIO_TEST_TO_NUMBER);
 
-  if (!present(env.TWILIO_FROM_NUMBER) && !present(env.TWILIO_PHONE_NUMBER)) {
-    voiceMissing.push("TWILIO_FROM_NUMBER", "TWILIO_PHONE_NUMBER");
+  if (!testTargetConfigured) {
+    voiceMissing.push("TWILIO_TEST_TO_NUMBER");
   }
+
+  const voiceAvailable = twilioStatus.status === "available" && testTargetConfigured;
 
   return {
     fireworks: fireworksProvider.getStatus(now),
@@ -1606,23 +1611,25 @@ function buildProviderState(options: RepositoryOptions): ProductProviderState {
     gmail: getGmailRuntimeStatus(env, null, now),
     voice: {
       provider: "twilio",
-      status: voiceMissing.length === 0 ? "available" : "unavailable",
-      reason: voiceMissing.length === 0 ? "configured" : "missing-config",
+      status: voiceAvailable ? "available" : "unavailable",
+      reason: voiceAvailable ? "configured" : "missing-config",
       message:
-        voiceMissing.length === 0
-          ? "Twilio environment appears configured. Calls remain gated by approval, live=true, and TWILIO_TEST_TO_NUMBER."
-          : "Twilio is not fully configured. Voice execution remains unavailable.",
+        voiceAvailable
+          ? "Twilio test calling is configured. Calls remain gated by approval, live=true, and the server-side test number."
+          : twilioStatus.status === "available"
+            ? "Twilio is configured, but TWILIO_TEST_TO_NUMBER is required before the live demo button can place a call."
+            : twilioStatus.message,
       missingEnv: voiceMissing,
       checkedAt: now.toISOString(),
       executionGate:
-        voiceMissing.length === 0
+        voiceAvailable
           ? {
               state: "approval_and_test_number_required",
               requiresApproval: true,
               requiresExplicitLiveFlag: true,
               requiresTestNumber: true,
               message:
-                "Voice execution is configured but gated. A separate execution route must verify approval, live=true, and TWILIO_TEST_TO_NUMBER before placing a call.",
+                "Voice execution is configured but gated. The execution route uses the server-side TWILIO_TEST_TO_NUMBER and verifies approval plus live=true before placing a call.",
             }
           : {
               state: "configuration_missing",

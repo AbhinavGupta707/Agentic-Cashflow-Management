@@ -170,8 +170,9 @@ operational model.
 - The app does not send emails or place calls without explicit approval.
 - Provider IDs are only shown after real providers return them.
 - Gmail is OAuth/connection-gated.
-- Twilio live calls require approval, `live=true`, and a target matching
-  `TWILIO_TEST_TO_NUMBER`.
+- Twilio live calls require approval and `live=true`; the server resolves the
+  destination from `TWILIO_TEST_TO_NUMBER` and refuses arbitrary browser-supplied
+  customer numbers.
 - Demo data is seeded Aurora product data unless explicitly connected to live
   customer systems.
 - Secrets belong in `.env.local` locally and Vercel environment variables in

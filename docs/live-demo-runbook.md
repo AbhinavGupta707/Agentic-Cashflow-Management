@@ -103,6 +103,11 @@ Required before placing a live Twilio test call:
 - `TWILIO_STATUS_CALLBACK_URL=https://<deployment-host>/api/product/voice/webhooks/twilio`
 - `TWILIO_TEST_TO_NUMBER`
 
+The product UI does not expose or accept arbitrary phone numbers. The approved
+test-call button sends `live=true`, and the server resolves the destination from
+`TWILIO_TEST_TO_NUMBER`; if the server-side test number is missing or mismatched,
+Twilio is not called.
+
 Deploy:
 
 ```bash

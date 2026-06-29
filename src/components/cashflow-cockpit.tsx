@@ -1099,10 +1099,9 @@ function ActionExecutionPanel({
   const approvalState = detail?.approval.state ?? action.approvalState.toLowerCase();
   const isApproved = approvalState === "approved";
   const voice = detail?.providerState.providers.voice;
-  const hasPhone = Boolean(detail?.customerContext.contact.phoneE164);
   const providerEvidence = detail?.executionHistory.providerExecutions[0] ?? null;
   const voiceEvidence = detail?.executionHistory.voiceCalls[0] ?? null;
-  const canExecuteVoice = Boolean(detail && isPhone && isApproved && hasPhone && voice?.status === "available" && !isPending);
+  const canExecuteVoice = Boolean(detail && isPhone && isApproved && voice?.status === "available" && !isPending);
   const pendingAction = mutationState.kind === "pending" ? mutationState.action : null;
   const gateMessage = !detail
     ? "Open a live action detail before execution."
@@ -1110,11 +1109,9 @@ function ActionExecutionPanel({
       ? "This action uses the email/manual execution path."
       : !isApproved
         ? "Approve this action before any live voice execution can be attempted."
-        : !hasPhone
-          ? "No callable customer phone number is stored for this action."
-          : voice?.status !== "available"
-            ? voice?.message ?? "Twilio voice is not configured."
-            : voice.executionGate.message;
+        : voice?.status !== "available"
+          ? voice?.message ?? "Twilio voice is not configured."
+          : voice.executionGate.message;
 
   const submitOutcome = () => {
     if (!detail || summary.trim().length < 8 || isPending) {
@@ -1166,7 +1163,8 @@ function ActionExecutionPanel({
             Place approved test call
           </button>
           <div className="mt-5 space-y-3 border-t border-white/[0.08] pt-5 text-sm text-slate-400">
-            <Guardrail label="Requires approved action, explicit live=true, Twilio credentials, TWILIO_TEST_TO_NUMBER, and exact destination match." />
+            <Guardrail label="Requires approved action, explicit live=true, Twilio credentials, TWILIO_TEST_TO_NUMBER, and exact server-side destination match." />
+            <Guardrail label="The browser never receives or chooses the phone number; the server only calls the configured test target." />
             <Guardrail label="No provider SID is persisted unless Twilio returns one." />
             {providerEvidence ? (
               <Guardrail

@@ -186,7 +186,7 @@ export async function initiateApprovalGatedVoiceCall(
     };
   }
 
-  const targetPhone = input.targetPhoneE164 ?? action.contact_phone_e164;
+  const targetPhone = input.targetPhoneE164 ?? (input.live === true ? env.TWILIO_TEST_TO_NUMBER : action.contact_phone_e164);
   if (!isValidE164PhoneNumber(targetPhone)) {
     const providerExecution = await upsertProviderExecution(dataApi, {
       tenantId: scope.tenant_id,

@@ -174,6 +174,41 @@ Verify the same flow as local QA, plus these production routes:
 
 Do not print or screenshot secrets.
 
+### Production QA Evidence 2026-06-29
+
+Verified production deployment:
+
+- Canonical URL:
+  `https://agentic-cashflow-management.vercel.app`
+- Deployment ID: `dpl_4UD3bJpeUAPfvAgS78UAsevZQMpN`
+- Inspect URL:
+  `https://vercel.com/abhinavs-projects-f1cef581/agentic-cashflow-management/4UD3bJpeUAPfvAgS78UAsevZQMpN`
+
+Production route probes:
+
+- `/` returned `200` and contained the CP8 sample-pack UI.
+- `/api/product/demo-intake` returned `200`.
+- `/api/product/overview` returned `200`.
+- `/api/product/actions` returned `200`.
+- `/api/product/agent-activity` returned `200`.
+- `/api/product/voice/status` returned `200`.
+
+Production live-intake proof:
+
+- `POST /api/product/demo-intake` returned `200`.
+- Sample finance pack processed `4` files.
+- Agent graph refreshed `5` checkpoints and `9` recommendations.
+- `outboundProvidersExecuted` stayed `false`.
+
+Production Chrome proof:
+
+- Overview rendered live risk story, live intake, sample-pack control,
+  Northstar actions, and recommendation-agent activity.
+- Actions rendered draft preview, execution-memory panel, approved-test-call
+  guardrail, and manual outcome-memory control.
+- Browser console had no warnings or errors on fresh Overview or Actions
+  renders.
+
 ## Submission Proof
 
 Capture:

@@ -2,10 +2,9 @@
 
 Date: 2026-06-29
 
-Status: Integrated locally. The three implementation worker lanes have landed
-and master integration has passed local contract, smoke, live-intake, and Chrome
-QA evidence. Production push/deploy verification and worker archiving are the
-remaining close-out steps.
+Status: Complete. The three implementation worker lanes have landed, master
+integration has passed local and production verification, the canonical Vercel
+deployment is live, and completed worker-lane sessions have been archived.
 
 ## Why This Checkpoint Exists
 
@@ -131,13 +130,16 @@ Checkpoint 8 is complete only when:
 - master integration diff is reviewed: complete
 - full acceptance suite passes: complete locally
 - local browser QA passes: complete
-- production deploy succeeds
-- production browser QA passes
+- production deploy succeeds: complete
+- production browser QA passes: complete
 - optional live Twilio call-to-self is either verified or explicitly marked
   gated/skipped: gated/skipped locally, no call placed
-- demo state is reset after any live mutation: pending final recording reset
+- demo state is reset after any live mutation: final state intentionally retains
+  the sample finance-pack intake and one outcome-memory proof for walkthrough
+  evidence; run `npm run db:seed` before recording if a fresh pending-approval
+  state is preferred
 - submission docs/assets are ready: complete
-- worker lanes are archived: pending final cleanup
+- worker lanes are archived: complete
 - `CP8_REQUIRE_FINAL_PRODUCT=true npm run check:cp8` passes after the runtime
   lanes land: complete
 
@@ -149,6 +151,7 @@ Integrated commits:
 - `57cb797 Merge checkpoint 8 live intake lane`
 - `e614add Merge checkpoint 8 execution memory lane`
 - `46249ef feat: wire checkpoint 8 sample intake UI`
+- `6689942 fix: polish checkpoint 8 final qa`
 
 Merged lane commits:
 
@@ -199,8 +202,24 @@ Chrome QA desktop evidence:
 Production evidence:
 
 - Production URL: `https://agentic-cashflow-management.vercel.app`
-- Production deployment ID: pending post-push verification
-- Production browser QA: pending post-push verification
+- Production deployment ID: `dpl_4UD3bJpeUAPfvAgS78UAsevZQMpN`
+- Production inspect URL:
+  `https://vercel.com/abhinavs-projects-f1cef581/agentic-cashflow-management/4UD3bJpeUAPfvAgS78UAsevZQMpN`
+- Production alias verified after manual production deploy.
+- Safe production GET probes returned `200` for `/`, `/api/product/demo-intake`,
+  `/api/product/overview`, `/api/product/actions`,
+  `/api/product/agent-activity`, and `/api/product/voice/status`.
+- Production `POST /api/product/demo-intake` returned `200`, processed `4`
+  files, refreshed `5` agent checkpoints, generated `9` recommendations, and
+  kept `outboundProvidersExecuted=false`.
+- Production Chrome QA verified Overview and Actions render the live CP8 flow
+  with no console warnings/errors.
+
+Worker lanes archived:
+
+- `019f1479-55a8-7e03-8dc3-fae43622a706`
+- `019f1479-7bb9-7ea1-835b-3d62a13032d6`
+- `019f1479-a41d-7512-b272-b9f2b4796f7a`
 
 Known gated flows:
 

@@ -40,29 +40,29 @@ the Northstar action pending unless the recording intentionally shows approval.
 Hello everyone, my name is Abhinav, and this is RunwayOps: an agentic cashflow
 operating system for small business finance teams.
 
-H0 asks for front-end in minutes and back-end designed for scale. I built
-RunwayOps around that idea because a small business can be profitable on paper
+H0 asks for front-end in minutes and back-end designed for scale. RunwayOps
+applies that to a painful SMB workflow: a business can look profitable on paper
 and still miss payroll when invoices, obligations, customer behavior, and
-follow-up live in separate tools.
+follow-up sit in separate tools.
 
 **0:20-0:40 - Blue-Sky Product Thesis**
 
 The blue-sky product is not another dashboard. It is one operating loop: finance
 data comes in, Aurora becomes the source of truth, deterministic forecasting
-finds the risk, agents recommend the best recovery action, a human approves it,
-and every outcome becomes memory for the next decision.
+finds the risk, agents recommend a recovery action, a human approves it, and the
+outcome becomes memory for the next decision.
 
 Let's see how it works.
 
 **0:40-1:10 - Overview**
 
 Here we are in the Vercel-deployed Next.js product. This demo case is Marlow &
-Finch Studio, a boutique interiors business with a payroll-week cash squeeze.
+Finch Studio with a payroll-week cash squeeze.
 
 The overview is reading from Aurora PostgreSQL, not local UI state. It shows GBP
-41,250 cash, GBP 38,000 payroll due, a VAT obligation, and a projected low point
-of negative GBP 6,350. But it does not stop at reporting the problem. It points
-to recoverable cash: a GBP 18,600 Northstar reminder.
+41,250 cash, GBP 38,000 payroll due, and a projected low point of negative GBP
+6,350. But it does not stop at reporting the problem. It points to recoverable
+cash: a GBP 18,600 Northstar reminder.
 
 **1:10-1:35 - Forecasts And Architecture**
 
@@ -79,9 +79,9 @@ and drafts; the deterministic layer carries the money.
 Now I open Actions and select Northstar.
 
 This is where RunwayOps becomes agentic. It has identified the customer, invoice
-NS-1048, the expected cash impact, and why the action should work. The detail
-view calls the live action API and generates a Fireworks-backed preview: email
-draft, call script, rationale, evidence, and guardrails.
+NS-1048, expected cash impact, and rationale. The detail view calls the live
+action API and generates a Fireworks-backed preview: email draft, call script,
+evidence, and guardrails.
 
 The memory is the key product move. Northstar pays fastest when reminders
 include a payment link and the final snagging list, so the agent is not writing
@@ -95,9 +95,9 @@ and a test number.
 
 In Agent Activity, you can see the evidence: graph started, forecast snapshot,
 recommendation plan, draft generated, and graph completed. This is the technical
-implementation behind the surface: Aurora as the primary data model, S3 for
-source provenance, Vercel route handlers as the runtime, LangGraph for persisted
-orchestration, and Fireworks for structured generation.
+implementation: Aurora as the primary data model, S3 for source provenance,
+Vercel route handlers as the runtime, LangGraph for persisted orchestration, and
+Fireworks for structured generation.
 
 **2:45-3:00 - Close**
 

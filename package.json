@@ -20,6 +20,7 @@
     "check:cp2": "tsx scripts/check-cp2-contract.ts",
     "check:cp3": "tsx scripts/check-cp3-contract.ts",
     "check:cp3-forecast": "tsx scripts/run-forecast-smoke.ts --dry-run",
+    "agent:smoke": "tsx scripts/run-agent-smoke.ts --replay",
     "forecast:dry": "tsx scripts/run-forecast-smoke.ts --dry-run",
     "forecast:smoke": "tsx scripts/run-forecast-smoke.ts --replay",
     "smoke:agent:no-key": "tsx scripts/smoke-agent-providers-no-key.ts",

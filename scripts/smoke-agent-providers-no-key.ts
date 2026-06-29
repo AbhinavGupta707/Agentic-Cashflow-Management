@@ -2,12 +2,26 @@ import assert from "node:assert/strict";
 
 import "./load-local-env";
 
-import { runCashflowAgentGraph } from "../src/server/agents/cashflow-graph";
 import { DEFAULT_DEMO_CASE_ID, DEFAULT_DEMO_COMPANY_ID } from "../src/server/db/case-state-contract";
 import { demoCaseData } from "../src/server/demo-data/cashflow-demo";
 import { createFireworksProvider } from "../src/server/providers/fireworks";
 import { getLangSmithTracingStatus } from "../src/server/providers/langsmith";
 import type { CompanyCaseState } from "../src/server/repositories/case-state";
+
+const PROVIDER_RUNTIME_ENV_KEYS = [
+  "FIREWORKS_API_KEY",
+  "FIREWORKS_MODEL",
+  "FIREWORKS_BASE_URL",
+  "LANGCHAIN_API_KEY",
+  "LANGCHAIN_ENDPOINT",
+  "LANGCHAIN_PROJECT",
+  "LANGCHAIN_TRACING",
+  "LANGCHAIN_TRACING_V2",
+  "LANGSMITH_API_KEY",
+  "LANGSMITH_ENDPOINT",
+  "LANGSMITH_PROJECT",
+  "LANGSMITH_TRACING",
+] as const;
 
 async function main() {
   const noKeyEnv: NodeJS.ProcessEnv = { ...process.env };
@@ -25,19 +39,23 @@ async function main() {
   assert.equal(langSmithStatus.reason, "no-key");
   assert.deepEqual(langSmithStatus.missingEnv, ["LANGSMITH_API_KEY"]);
 
-  const output = await runCashflowAgentGraph(
-    {
-      tenantId: "00000000-0000-4000-8000-000000000001",
-      companyExternalId: DEFAULT_DEMO_COMPANY_ID,
-      caseId: DEFAULT_DEMO_CASE_ID,
-      idempotencyKey: "agent-run:no-key-smoke",
-    },
-    {
-      env: noKeyEnv,
-      persist: false,
-      caseState: demoCaseState(),
-    },
-  );
+  const output = await withNoKeyProviderRuntime(async () => {
+    const { runCashflowAgentGraph } = await import("../src/server/agents/cashflow-graph");
+
+    return runCashflowAgentGraph(
+      {
+        tenantId: "00000000-0000-4000-8000-000000000001",
+        companyExternalId: DEFAULT_DEMO_COMPANY_ID,
+        caseId: DEFAULT_DEMO_CASE_ID,
+        idempotencyKey: "agent-run:no-key-smoke",
+      },
+      {
+        env: noKeyEnv,
+        persist: false,
+        caseState: demoCaseState(),
+      },
+    );
+  });
 
   assert.equal(output.agentRunId, null);
   assert.equal(output.providerStatuses.fireworks.status, "unavailable");
@@ -145,6 +163,33 @@ function customerName(customerExternalId: string): string {
     demoCaseData.customers.find((customer) => customer.externalId === customerExternalId)?.name ??
     customerExternalId
   );
+}
+
+async function withNoKeyProviderRuntime<T>(operation: () => Promise<T>): Promise<T> {
+  const previousValues = new Map<string, string | undefined>();
+
+  for (const key of PROVIDER_RUNTIME_ENV_KEYS) {
+    previousValues.set(key, process.env[key]);
+    delete process.env[key];
+  }
+
+  process.env.LANGCHAIN_TRACING = "false";
+  process.env.LANGCHAIN_TRACING_V2 = "false";
+  process.env.LANGSMITH_TRACING = "false";
+
+  try {
+    return await operation();
+  } finally {
+    for (const key of PROVIDER_RUNTIME_ENV_KEYS) {
+      const previousValue = previousValues.get(key);
+
+      if (previousValue === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = previousValue;
+      }
+    }
+  }
 }
 
 main().catch((error) => {

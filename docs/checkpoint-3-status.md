@@ -4,13 +4,13 @@ Date: 2026-06-29
 
 Checkpoint: Live Forecasting, LangGraph, Fireworks, And LangSmith
 
-Status: QA contract lane ready for integration. This document does not claim
-full CP3 completion until the forecast, agent graph, provider, and cockpit lanes
-are merged and verified together.
+Status: Integrated and verified on `main`. The forecast, agent graph/provider,
+cockpit, and QA/docs lanes have been merged together, patched for integration
+gaps, and verified against local checks, live Aurora smokes, and browser smoke.
 
 ## Scope
 
-This lane adds the CP3 verification and documentation surface:
+Checkpoint 3 adds the CP3 verification and documentation surface:
 
 - offline schema contract check for forecast/action/agent/communication handoff
 - deterministic acceptance checks for the orchestrator
@@ -18,8 +18,34 @@ This lane adds the CP3 verification and documentation surface:
 - browser smoke procedure for the forecast/action cockpit state
 - CP4 handoff notes for approval-gated email without implementing CP4
 
-It does not implement production forecast generation, provider adapters, Gmail
-OAuth, email sending, voice execution, or future-checkpoint runtime behavior.
+It does not implement Gmail OAuth, email sending, voice execution, or
+future-checkpoint runtime behavior.
+
+## Integrated Verification Results
+
+Final CP3 integration verification included:
+
+- `npm install`
+- `npm run typecheck`
+- `npm run build`
+- `npm run db:migrate:dry`
+- `npm run db:seed:dry`
+- `npm run check:cp2`
+- `npm run check:cp3`
+- `npm run forecast:dry`
+- `npm run forecast:smoke`
+- `npm run smoke:agent:no-key`
+- `npm run agent:smoke`
+- `git diff --check`
+- legacy repository / non-Aurora datastore scan
+- Chrome cockpit smoke on `http://127.0.0.1:3000`
+- local route smoke for `/api/cp3/forecast-cockpit`
+
+Live Aurora forecast replay verified stable forecast/action ids. Live Aurora
+agent replay verified stable `agent_runs` and persisted `agent_checkpoints`.
+Browser smoke verified the cockpit renders persisted forecast/action/provider
+state, keeps Gmail/voice execution unavailable for CP3, refreshes from Aurora,
+and reports no browser console errors.
 
 ## Official Provider Docs Reviewed
 
@@ -98,6 +124,8 @@ URLs.
 With no Fireworks or LangSmith keys:
 
 - `npm run check:cp3` passes if the schema contract is present.
+- `npm run smoke:agent:no-key` passes without Aurora persistence or provider
+  network calls.
 - forecast/action generation remains deterministic and uses Aurora facts plus
   deterministic fallback copy only.
 - provider status reports Fireworks unavailable instead of calling a model.
@@ -123,11 +151,14 @@ configured:
    `actions`, `approval_records`, `agent_runs`, and `agent_checkpoints`.
 4. Re-run the forecast smoke and confirm idempotent replay does not duplicate
    tenant-scoped rows.
-5. If Fireworks keys and model are present, make exactly one real provider smoke
+5. Run `npm run agent:smoke` and confirm the LangGraph run persists
+   `agent_runs` and `agent_checkpoints` with deterministic fallback draft output
+   when optional provider keys are absent.
+6. If Fireworks keys and model are present, make exactly one real provider smoke
    through the CP3 adapter and verify the response is stored as provenance.
-6. If `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` are present, verify the
+7. If `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` are present, verify the
    real trace metadata or URL is associated with the `agent_runs` record.
-7. If optional provider env is absent, verify the same flows report unavailable
+8. If optional provider env is absent, verify the same flows report unavailable
    state and do not fake provider results.
 
 ## Browser Smoke Procedure
@@ -161,6 +192,9 @@ npm run db:migrate:dry
 npm run db:seed:dry
 npm run check:cp2
 npm run check:cp3
+npm run smoke:agent:no-key
+npm run forecast:smoke
+npm run agent:smoke
 git diff --check
 rg -n -e 'Runway''Ops' -e 'external''-legacy-repo-placeholder' -e 'mongo''db\+srv' -e 'Mongo''DB' -e 'MONGO''DB' -e 'mongo''db' src scripts db package.json README.md docs/checkpoint-3*.md docs/schema.md
 ```
@@ -172,6 +206,8 @@ Passing criteria:
 - CP3 offline contract check passes without provider keys.
 - Dry migration and dry seed still parse and report deterministic state.
 - Live forecast smoke passes when Aurora env is present.
+- Live agent smoke persists and replays `agent_runs`/`agent_checkpoints` when
+  Aurora env is present.
 - Fireworks and LangSmith no-key smokes report unavailable state without fake
   calls.
 - Browser smoke shows persisted forecast/action/agent state and provider status.

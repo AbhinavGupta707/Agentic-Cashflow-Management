@@ -4,7 +4,9 @@ Date: 2026-06-29
 
 Checkpoint: Live Forecasting, LangGraph, Fireworks, And LangSmith
 
-Status: Ready to launch from `main` at or after commit `3229b8b`.
+Status: Integrated on `main` from the four CP3 worktree lanes and verified
+against local build checks, live Aurora forecast persistence, live Aurora agent
+graph persistence, no-key provider posture, and Chrome cockpit smoke.
 
 ## Product Outcome
 
@@ -34,7 +36,9 @@ approval-ready action plan:
 - Fireworks text model querying and OpenAI-compatible API:
   `https://docs.fireworks.ai/guides/querying-text-models`
 
-Workers should verify package APIs against installed versions before committing.
+The integrated implementation verifies package APIs against the installed
+versions and keeps optional provider calls disabled unless real keys are
+intentionally configured.
 
 ## Provider And Key Posture
 
@@ -68,12 +72,18 @@ Provider smoke added for the agent/provider lane:
 
 ```bash
 npm run smoke:agent:no-key
+npm run agent:smoke
 ```
 
-The no-key smoke strips Fireworks and LangSmith keys in-process, runs the
-cashflow graph without Aurora persistence against deterministic demo data, and
-expects Fireworks/LangSmith `unavailable` provider states plus deterministic
-draft fallback output.
+The no-key smoke strips Fireworks and LangSmith keys at the process boundary,
+runs the cashflow graph without Aurora persistence against deterministic demo
+data, and expects Fireworks/LangSmith `unavailable` provider states plus
+deterministic draft fallback output.
+
+The live agent smoke uses Aurora persistence and idempotent replay while still
+isolating optional Fireworks/LangSmith env by default. Pass `--allow-providers`
+to `scripts/run-agent-smoke.ts` only after real provider keys are intentionally
+configured and live provider calls are expected.
 
 ## Lane Split
 
@@ -84,7 +94,7 @@ draft fallback output.
 | Cockpit Forecast UX And API | `codex/cp3-cockpit-forecast-ux` | forecast/action API routes, cockpit UI, provider status, unavailable/loading/error states |
 | QA Docs And Smoke | `codex/cp3-qa-docs-smoke` | CP3 status/runbook, contract checks, no-key/live smoke guidance, browser smoke checklist |
 
-Do not launch CP4 until CP3 is merged, verified, documented, and worker lanes
+CP4 should launch only from this integrated `main` state after CP3 worker lanes
 are archived.
 
 ## Acceptance Checklist

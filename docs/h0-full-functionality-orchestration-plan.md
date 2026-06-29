@@ -187,6 +187,8 @@ Non-goals:
 
 ### Checkpoint 2: Live Ingestion And Event Inbox
 
+Status: complete, merged, and live-Aurora/S3 verified.
+
 - Implement CSV/manual/PDF upload routes.
 - Store files in S3 and provenance in Aurora.
 - Normalize invoices, obligations, customers, and payment events.
@@ -194,12 +196,17 @@ Non-goals:
 
 ### Checkpoint 3: Live Forecasting, LangGraph, Fireworks, LangSmith
 
+Status: complete, merged, and live-Aurora verified without requiring optional
+Fireworks or LangSmith keys.
+
 - Implement deterministic forecast engine.
 - Wire LangGraph orchestration and persisted runs/checkpoints.
 - Use Fireworks for structured extraction/drafting.
 - Emit LangSmith traces.
 
 ### Checkpoint 4: Approval-Gated Email And Gmail
+
+Status: next checkpoint.
 
 - Gmail OAuth.
 - Draft/send actions only after approval.

@@ -744,10 +744,11 @@ function extractForecastDrivers(rawJson: string | null): Cp3ForecastDriver[] {
 
   const candidates = collectDriverCandidates(parsed);
 
-  return candidates
+  const drivers = candidates
     .map(toForecastDriver)
-    .filter((driver): driver is Cp3ForecastDriver => Boolean(driver))
-    .slice(0, 12);
+    .filter((driver): driver is Cp3ForecastDriver => Boolean(driver));
+
+  return dedupeDrivers(drivers).slice(0, 12);
 }
 
 function collectDriverCandidates(value: unknown): unknown[] {

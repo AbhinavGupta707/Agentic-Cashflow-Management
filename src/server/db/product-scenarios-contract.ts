@@ -33,6 +33,7 @@ export type ProductScenarioProjection = {
     totalInflowCents: number;
     totalOutflowCents: number;
     endingCashCents: number;
+    endingCashDate: string | null;
     runwayDays: number | null;
   };
   series: ProductScenarioPoint[];
@@ -87,6 +88,12 @@ export type ProductScenariosState = {
   generatedAt: string;
   state: ProductSourceState;
   source: ProductDataSource;
+  horizon: {
+    startDate: string;
+    endDate: string;
+    days: number;
+    source: ProductDataSource;
+  };
   controls: ProductScenarioControl[];
   projections: ProductScenarioProjection[];
   comparisonCards: ProductScenarioComparisonCard[];

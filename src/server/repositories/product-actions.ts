@@ -192,6 +192,25 @@ export type ProductProviderState = {
     message: string;
     missingEnv: string[];
     checkedAt: string;
+    executionGate: {
+      state: "approval_and_test_number_required" | "configuration_missing";
+      requiresApproval: true;
+      requiresExplicitLiveFlag: true;
+      requiresTestNumber: true;
+      message: string;
+    };
+  };
+};
+
+export type ProductActionDetailContract = {
+  href: string;
+  previewState: "stored" | "generated_on_detail";
+  previewSource: ProductDraftPreview["source"] | null;
+  shouldFetchForPreview: boolean;
+  mutationRoutes: {
+    approve: string;
+    reject: string;
+    editDraft: string;
   };
 };
 
@@ -216,10 +235,12 @@ export type ProductActionSummary = {
   };
   approval: ProductApprovalState;
   draftPreview: ProductDraftPreview | null;
+  detail: ProductActionDetailContract;
   providerState: {
     latestProvider: string | null;
     latestExecutionState: string | null;
     outboundOutcomeBackedByProvider: boolean;
+    executionGate: "approval_required" | "provider_executed" | "no_provider_execution";
   };
   updatedAt: string;
 };
@@ -356,11 +377,31 @@ export type ProductActionsState = {
 
 export type ProductActionDecisionResult = {
   action: ProductActionDetail;
+  actions: ProductActionsState;
+  decision: {
+    requested: "approved" | "rejected";
+    applied: boolean;
+    state: ProductApprovalState["state"];
+    message: string;
+  };
+  refresh: {
+    actionHref: string;
+    actionsHref: string;
+  };
 };
 
 export type ProductDraftEditResult = {
   draft: ProductDraftPreview;
   action: ProductActionDetail;
+  actions: ProductActionsState;
+  edit: {
+    applied: true;
+    message: string;
+  };
+  refresh: {
+    actionHref: string;
+    actionsHref: string;
+  };
 };
 
 export class ProductActionConflictError extends Error {
@@ -517,6 +558,12 @@ export async function approveProductAction(
   },
   options: RepositoryOptions = {},
 ): Promise<ProductActionDecisionResult> {
+  const current = await getDecisionGuardRow(input.actionIdOrExternalId, options);
+  const guarded = await handleAlreadyDecidedAction(current, "approved", input.actionIdOrExternalId, options);
+  if (guarded) {
+    return guarded;
+  }
+
   await decideApproval(
     {
       actionId: isUuid(input.actionIdOrExternalId) ? input.actionIdOrExternalId : null,
@@ -530,9 +577,7 @@ export async function approveProductAction(
   );
   await updateNonEmailDraftStates(input.actionIdOrExternalId, "approved", options);
 
-  return {
-    action: await getProductActionDetail({ actionIdOrExternalId: input.actionIdOrExternalId }, options),
-  };
+  return buildDecisionResult(input.actionIdOrExternalId, options, "approved", true);
 }
 
 export async function rejectProductAction(
@@ -544,6 +589,12 @@ export async function rejectProductAction(
   },
   options: RepositoryOptions = {},
 ): Promise<ProductActionDecisionResult> {
+  const current = await getDecisionGuardRow(input.actionIdOrExternalId, options);
+  const guarded = await handleAlreadyDecidedAction(current, "rejected", input.actionIdOrExternalId, options);
+  if (guarded) {
+    return guarded;
+  }
+
   await decideApproval(
     {
       actionId: isUuid(input.actionIdOrExternalId) ? input.actionIdOrExternalId : null,
@@ -557,9 +608,7 @@ export async function rejectProductAction(
   );
   await updateNonEmailDraftStates(input.actionIdOrExternalId, "rejected", options);
 
-  return {
-    action: await getProductActionDetail({ actionIdOrExternalId: input.actionIdOrExternalId }, options),
-  };
+  return buildDecisionResult(input.actionIdOrExternalId, options, "rejected", true);
 }
 
 export async function editProductActionDraft(
@@ -676,6 +725,12 @@ export async function editProductActionDraft(
   return {
     draft: normalizeDraft(requireRow(draft, "edited draft")),
     action: await getProductActionDetail({ actionIdOrExternalId: input.actionIdOrExternalId }, options),
+    actions: await listProductActions(options),
+    edit: {
+      applied: true,
+      message: "Draft was persisted in Aurora. No provider send or call was executed.",
+    },
+    refresh: buildRefreshLinks(input.actionIdOrExternalId),
   };
 }
 
@@ -1063,10 +1118,13 @@ async function findLatestDraft(
 
 function toActionSummary(row: ActionRow, whyOverride?: string): ProductActionSummary {
   const approval = toApproval(row);
+  const externalId = row.external_id ?? row.idempotency_key;
+  const draftPreview = toDraftPreview(row);
+  const providerExecuted = Boolean(row.provider_execution_id || row.provider_message_id || row.provider_call_id);
 
   return {
     id: row.id,
-    externalId: row.external_id ?? row.idempotency_key,
+    externalId,
     actionType: row.action_type,
     state: row.state,
     priority: row.priority,
@@ -1084,16 +1142,111 @@ function toActionSummary(row: ActionRow, whyOverride?: string): ProductActionSum
       riskTier: row.customer_risk_tier,
     },
     approval,
-    draftPreview: toDraftPreview(row),
+    draftPreview,
+    detail: buildDetailContract(externalId, draftPreview),
     providerState: {
       latestProvider: row.execution_provider ?? row.message_provider ?? row.voice_provider,
       latestExecutionState: row.execution_state ?? row.message_state ?? row.voice_state,
-      outboundOutcomeBackedByProvider: Boolean(
-        row.provider_execution_id || row.provider_message_id || row.provider_call_id,
-      ),
+      outboundOutcomeBackedByProvider: providerExecuted,
+      executionGate: providerExecuted
+        ? "provider_executed"
+        : approval.canApprove || approval.canReject
+          ? "approval_required"
+          : "no_provider_execution",
     },
     updatedAt: row.updated_at,
   };
+}
+
+async function getDecisionGuardRow(
+  actionIdOrExternalId: string,
+  options: RepositoryOptions,
+): Promise<ActionRow> {
+  const dataApi = await resolveDataApi(options);
+  const scope = await resolveCompanyScope(dataApi, options);
+  const caseId = resolveCaseId(options);
+
+  return findActionRow(dataApi, scope, caseId, actionIdOrExternalId);
+}
+
+async function handleAlreadyDecidedAction(
+  row: ActionRow,
+  decision: "approved" | "rejected",
+  actionIdOrExternalId: string,
+  options: RepositoryOptions,
+): Promise<ProductActionDecisionResult | null> {
+  if (!row.approval_id || row.approval_state === "missing") {
+    throw new ProductActionConflictError(
+      "approval_missing",
+      "No approval record is available for this action. Create or seed an approval request first.",
+    );
+  }
+
+  if (row.approval_state === "pending") {
+    return null;
+  }
+
+  if (row.approval_state === decision) {
+    return buildDecisionResult(actionIdOrExternalId, options, decision, false);
+  }
+
+  throw new ProductActionConflictError(
+    "approval_already_decided",
+    `This action is already ${row.approval_state}. Refresh the action before changing the decision.`,
+  );
+}
+
+async function buildDecisionResult(
+  actionIdOrExternalId: string,
+  options: RepositoryOptions,
+  decision: "approved" | "rejected",
+  applied: boolean,
+): Promise<ProductActionDecisionResult> {
+  const action = await getProductActionDetail({ actionIdOrExternalId }, options);
+
+  return {
+    action,
+    actions: await listProductActions(options),
+    decision: {
+      requested: decision,
+      applied,
+      state: action.approval.state,
+      message: applied
+        ? `Approval was marked ${decision} in Aurora. No provider send or call was executed.`
+        : `Approval was already ${decision}; no duplicate decision was written.`,
+    },
+    refresh: buildRefreshLinks(actionIdOrExternalId),
+  };
+}
+
+function buildDetailContract(
+  actionExternalId: string,
+  draftPreview: ProductDraftPreview | null,
+): ProductActionDetailContract {
+  const href = actionHref(actionExternalId);
+
+  return {
+    href,
+    previewState: draftPreview ? "stored" : "generated_on_detail",
+    previewSource: draftPreview?.source ?? null,
+    shouldFetchForPreview: !draftPreview,
+    mutationRoutes: {
+      approve: `${href}/approve`,
+      reject: `${href}/reject`,
+      editDraft: `${href}/edit-draft`,
+    },
+  };
+}
+
+function buildRefreshLinks(actionIdOrExternalId: string): ProductActionDecisionResult["refresh"] {
+  return {
+    actionHref: actionHref(actionIdOrExternalId),
+    actionsHref: "/api/product/actions",
+  };
+}
+
+function actionHref(actionIdOrExternalId: string): string {
+  return `/api/product/actions/${encodeURIComponent(actionIdOrExternalId)}`;
 }
 
 function toApproval(row: ActionRow): ProductApprovalState {
@@ -1307,6 +1460,23 @@ function buildProviderState(options: RepositoryOptions): ProductProviderState {
           : "Twilio is not fully configured. Voice execution remains unavailable.",
       missingEnv: voiceMissing,
       checkedAt: now.toISOString(),
+      executionGate:
+        voiceMissing.length === 0
+          ? {
+              state: "approval_and_test_number_required",
+              requiresApproval: true,
+              requiresExplicitLiveFlag: true,
+              requiresTestNumber: true,
+              message:
+                "Voice execution is configured but gated. A separate execution route must verify approval, live=true, and TWILIO_TEST_TO_NUMBER before placing a call.",
+            }
+          : {
+              state: "configuration_missing",
+              requiresApproval: true,
+              requiresExplicitLiveFlag: true,
+              requiresTestNumber: true,
+              message: "Voice execution is unavailable until Twilio configuration is complete.",
+            },
     },
   };
 }

@@ -24,6 +24,8 @@
     "forecast:dry": "tsx scripts/run-forecast-smoke.ts --dry-run",
     "forecast:smoke": "tsx scripts/run-forecast-smoke.ts --replay",
     "smoke:agent:no-key": "tsx scripts/smoke-agent-providers-no-key.ts",
+    "smoke:gmail:no-key": "tsx scripts/smoke-gmail-no-key.ts",
+    "smoke:cp4:approval-gate": "tsx scripts/smoke-cp4-approval-gate.ts",
     "smoke:data-api": "tsx scripts/check-data-api.ts",
     "smoke": "tsx scripts/smoke-current-case.ts"
   },

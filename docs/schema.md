@@ -120,3 +120,28 @@ The schema supports idempotent replay through tenant-scoped idempotency keys.
 PDF extraction should not be faked: unsupported PDF parsing should remain
 visible as queued, unsupported, or failed import state until a real extractor is
 implemented.
+
+## Checkpoint 3 Forecast And Agent Contract
+
+Checkpoint 3 reuses the checkpoint 1 Aurora primitives for deterministic
+forecasting, approval-ready recommendations, and persisted agent graph state.
+
+The offline CP3 contract check is:
+
+```bash
+npm run check:cp3
+```
+
+It verifies that the existing migration contains:
+
+- `forecast_runs` and `forecast_points` for replayable forecast persistence
+- `action_plans`, `actions`, and `approval_records` for approval-gated action
+  planning
+- `agent_runs` and `agent_checkpoints` for LangGraph-style run/checkpoint
+  persistence and optional LangSmith trace URLs
+- `communication_drafts`, `communication_messages`, and `provider_executions`
+  for the CP4 email handoff without executing Gmail in CP3
+
+Missing Fireworks or LangSmith env must not mutate this schema contract. CP3
+should report provider-unavailable state rather than writing fake provider
+results.

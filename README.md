@@ -178,3 +178,19 @@ with clear no-key messages instead of silently falling back to fixtures.
 Manual CP5/CP6 browser QA should judge the four reference-style product screens:
 Overview, Actions, Customers, and Forecasts. Use `Ui References/1.png` through
 `Ui References/4.png` plus `docs/checkpoint-5-6-status.md` as the checklist.
+
+Checkpoint 8 is the final product and submission-readiness pass:
+
+- `docs/checkpoint-8-final-product-orchestration.md`
+- `docs/checkpoint-8-final-product-status.md`
+- `docs/h0-final-submission-package.md`
+- `docs/h0-architecture-diagram.md`
+- `docs/checkpoint-8-final-qa-checklist.md`
+- `npm run check:cp8`
+
+During final CP8 master integration, hard-fail any remaining final-runtime proof
+gaps with:
+
+```bash
+CP8_REQUIRE_FINAL_PRODUCT=true npm run check:cp8
+```

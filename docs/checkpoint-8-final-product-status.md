@@ -3,7 +3,9 @@
 Date: 2026-06-29
 
 Status: Launched. Implementation worker lanes are active; this master thread is
-the only orchestration surface.
+the only orchestration surface. Do not claim checkpoint completion until all
+lanes merge, master integration passes, final browser/deployment evidence is
+recorded, and worker lanes are archived.
 
 ## Why This Checkpoint Exists
 
@@ -122,6 +124,8 @@ Checkpoint 8 is complete only when:
 - demo state is reset after any live mutation
 - submission docs/assets are ready
 - worker lanes are archived
+- `CP8_REQUIRE_FINAL_PRODUCT=true npm run check:cp8` passes after the runtime
+  lanes land
 
 ## Final Evidence Template
 
@@ -130,6 +134,7 @@ Fill this in after execution:
 ```text
 Integrated commit:
 Merged lane commits:
+Worker lanes archived:
 Production URL:
 Production deployment ID:
 Commands passed:
@@ -146,8 +151,20 @@ Twilio live/gated evidence:
 Outcome memory evidence:
 Architecture diagram path:
 AWS proof screenshot path:
+Vercel project link:
+Vercel Team ID:
 Public content link:
 Demo video link:
 Known gated flows:
 Residual risks:
 ```
+
+## Submission Assets
+
+Current repo-native assets:
+
+- `docs/h0-architecture-diagram.md`
+- `docs/h0-final-submission-package.md`
+- `docs/checkpoint-8-final-qa-checklist.md`
+- `docs/h0-blue-sky-demo-script.md`
+- `docs/h0-final-submission-readiness-plan.md`

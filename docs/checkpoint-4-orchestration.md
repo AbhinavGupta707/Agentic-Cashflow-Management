@@ -63,6 +63,23 @@ Missing Gmail env must not block internal draft/approval workflows. Gmail
 provider operations must report honest unavailable/no-key status and must not
 fake provider draft IDs, message IDs, sends, replies, or delivery outcomes.
 
+The provider backend lane adds:
+
+- `provider_connections` for tenant-scoped Gmail OAuth connection metadata and
+  encrypted token envelopes.
+- `GET /api/gmail/oauth/start` for authorization URL creation when required env
+  is present.
+- `GET /api/gmail/oauth/callback` for signed-state validation, token exchange,
+  and encrypted token persistence.
+- `GET /api/gmail/status` for no-key/no-token/configured status without
+  exposing token values.
+- `npm run smoke:gmail:no-key` for deterministic no-key/config checks with no
+  Gmail network calls.
+
+Default Gmail scope is `https://www.googleapis.com/auth/gmail.compose`, which
+supports draft create/update/send workflows. Set `GOOGLE_GMAIL_SCOPES` only if a
+later workflow intentionally changes that scope contract.
+
 ## Lane Split
 
 | Lane | Branch | Ownership |

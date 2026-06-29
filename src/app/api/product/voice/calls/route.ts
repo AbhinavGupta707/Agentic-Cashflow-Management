@@ -69,6 +69,26 @@ function validateVoiceCallRequest(body: VoiceCallRequest): VoiceCallRequest {
     throw new Error("Provide only one of actionId or actionExternalId.");
   }
 
+  if (identifiers.length === 0) {
+    throw new Error("Provide actionId or actionExternalId.");
+  }
+
+  if (body.approved !== undefined && typeof body.approved !== "boolean") {
+    throw new Error("approved must be a boolean when provided.");
+  }
+
+  if (body.live !== undefined && typeof body.live !== "boolean") {
+    throw new Error("live must be a boolean when provided.");
+  }
+
+  if (body.targetPhoneE164 !== undefined && body.targetPhoneE164 !== null && !/^\+[1-9]\d{7,14}$/.test(body.targetPhoneE164)) {
+    throw new Error("targetPhoneE164 must be a valid E.164 phone number when provided.");
+  }
+
+  if (body.idempotencyKey !== undefined && (typeof body.idempotencyKey !== "string" || body.idempotencyKey.trim().length === 0)) {
+    throw new Error("idempotencyKey must be a non-empty string when provided.");
+  }
+
   return body;
 }
 

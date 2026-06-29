@@ -236,7 +236,8 @@ routes, but not yet fully wired as an end-to-end clickable demo workflow.
 
 ### Checkpoint 7: Live Demo Workflow Integration
 
-Status: planned in `docs/checkpoint-7-live-demo-workflow-orchestration.md`.
+Status: complete, merged, browser-QA verified locally, and deployed to
+production.
 
 This checkpoint closes the current gap between backend capability and
 judge-facing product interaction:
@@ -248,17 +249,26 @@ judge-facing product interaction:
 - add a clearer Overview risk narrative
 - update demo/runbook evidence after browser QA
 
-### Checkpoint 8: Production Hardening
+### Checkpoint 8: Final Product And Submission Readiness
 
-- Vercel Cron.
-- OIDC role/env completion.
-- Security and privacy review.
-- Budget/resource cleanup docs.
+Status: planned in `docs/checkpoint-8-final-product-orchestration.md` and
+`docs/h0-final-submission-readiness-plan.md`.
 
-### Checkpoint 9: End-To-End Demo And Submission
+This is the last product checkpoint. It should turn the live cockpit into a
+first-place-contender submission by proving one complete end-to-end loop:
 
-- Full live loop from ingestion to approved action to learned outcome.
-- Architecture diagram, AWS DB screenshot, Vercel link/team ID, and demo video script.
+- upload/import sample financial data through real routes
+- store provenance in S3 and operational state in Aurora PostgreSQL
+- process events through the inbox
+- recompute deterministic forecast and agent recommendation
+- generate Fireworks-backed draft/call script
+- require human approval
+- execute exactly one safe provider action when explicitly configured
+- persist provider/audit/memory outcomes
+- produce architecture, demo, and Devpost submission assets
+
+Checkpoint 8 absorbs the old production-hardening and submission checkpoints so
+there is a single final end-state product pass.
 
 ## Worker Prompt Template
 

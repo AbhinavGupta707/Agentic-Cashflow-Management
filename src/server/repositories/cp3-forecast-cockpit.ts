@@ -14,6 +14,9 @@ import type {
   Cp3ForecastState,
   Cp3ProviderStatus,
   Cp3RecommendedAction,
+  Cp4EmailApprovalItem,
+  Cp4EmailApprovalState,
+  Cp4ProviderExecutionSummary,
 } from "../db/cp3-forecast-cockpit-contract";
 
 type RepositoryOptions = {
@@ -122,6 +125,53 @@ type ProviderExecutionRow = {
   updated_at: string;
 };
 
+type Cp4EmailApprovalRow = {
+  action_external_id: string | null;
+  action_idempotency_key: string;
+  action_state: string;
+  action_type: string;
+  title: string;
+  expected_cash_impact_cents: number;
+  customer_external_id: string | null;
+  customer_name: string | null;
+  contact_full_name: string | null;
+  contact_email: string | null;
+  contact_role: string | null;
+  invoice_external_id: string | null;
+  invoice_number: string | null;
+  approval_state: string | null;
+  approval_requested_at: string | null;
+  approval_decided_at: string | null;
+  approval_expires_at: string | null;
+  draft_id: string | null;
+  draft_idempotency_key: string | null;
+  draft_provider: string | null;
+  draft_subject: string | null;
+  draft_body_preview: string | null;
+  draft_state: string | null;
+  draft_agent_run_id: string | null;
+  draft_created_at: string | null;
+  draft_updated_at: string | null;
+  message_provider: string | null;
+  provider_message_id: string | null;
+  message_direction: string | null;
+  message_state: string | null;
+  message_subject: string | null;
+  message_sent_at: string | null;
+  message_received_at: string | null;
+  message_updated_at: string | null;
+  execution_provider: string | null;
+  execution_operation: string | null;
+  execution_state: string | null;
+  provider_execution_id: string | null;
+  execution_attempts: number | null;
+  execution_last_error: string | null;
+  execution_attempted_at: string | null;
+  execution_completed_at: string | null;
+  execution_updated_at: string | null;
+  provider_execution_count: number;
+};
+
 export async function getCp3ForecastCockpitState(
   options: RepositoryOptions = {},
 ): Promise<Cp3ForecastCockpitState> {
@@ -203,6 +253,8 @@ export async function getCp3ForecastCockpitState(
     ? await getRecommendedActionsForPlan(dataApi, actionPlan.id)
     : await getRecommendedActionsForCase(dataApi, scope.company_id, caseId);
 
+  const providerStatuses = buildProviderStatuses(providerExecutions);
+  const cp4EmailApprovalRows = await getCp4EmailApprovalRows(dataApi, scope.company_id, caseId);
   const checkpoints = agentRuns[0] ? await getAgentCheckpoints(dataApi, agentRuns[0].id) : [];
 
   return {
@@ -212,8 +264,12 @@ export async function getCp3ForecastCockpitState(
     generatedAt: new Date().toISOString(),
     forecast: buildForecastState(forecastRun, forecastPoints),
     actionPlan: buildActionState(actionPlan, actions),
+    cp4EmailApproval: buildCp4EmailApprovalState(
+      cp4EmailApprovalRows,
+      providerStatuses.find((provider) => provider.key === "gmail")!,
+    ),
     agent: buildAgentState(agentRuns, checkpoints),
-    providers: buildProviderStatuses(providerExecutions),
+    providers: providerStatuses,
   };
 }
 
@@ -496,6 +552,155 @@ async function getProviderExecutions(
   );
 }
 
+async function getCp4EmailApprovalRows(
+  dataApi: AuroraDataApiClient,
+  companyId: string,
+  caseId: string,
+): Promise<Cp4EmailApprovalRow[]> {
+  return dataApi.execute<Cp4EmailApprovalRow>(
+    `
+      select
+        a.external_id as action_external_id,
+        a.idempotency_key as action_idempotency_key,
+        a.state as action_state,
+        a.action_type,
+        a.title,
+        round(a.expected_cash_impact * 100)::bigint as expected_cash_impact_cents,
+        c.external_id as customer_external_id,
+        c.name as customer_name,
+        contact.full_name as contact_full_name,
+        contact.email as contact_email,
+        contact.role as contact_role,
+        i.external_id as invoice_external_id,
+        i.invoice_number,
+        approval.state as approval_state,
+        approval.requested_at::text as approval_requested_at,
+        approval.decided_at::text as approval_decided_at,
+        approval.expires_at::text as approval_expires_at,
+        draft.id::text as draft_id,
+        draft.idempotency_key as draft_idempotency_key,
+        draft.provider as draft_provider,
+        draft.subject as draft_subject,
+        left(regexp_replace(draft.body, '[\\r\\n\\t]+', ' ', 'g'), 700) as draft_body_preview,
+        draft.state as draft_state,
+        draft.generated_by_agent_run_id::text as draft_agent_run_id,
+        draft.created_at::text as draft_created_at,
+        draft.updated_at::text as draft_updated_at,
+        message.provider as message_provider,
+        message.provider_message_id,
+        message.direction as message_direction,
+        message.state as message_state,
+        message.subject as message_subject,
+        message.sent_at::text as message_sent_at,
+        message.received_at::text as message_received_at,
+        message.updated_at::text as message_updated_at,
+        execution.provider as execution_provider,
+        execution.operation as execution_operation,
+        execution.state as execution_state,
+        execution.provider_execution_id,
+        execution.attempts as execution_attempts,
+        execution.last_error as execution_last_error,
+        execution.attempted_at::text as execution_attempted_at,
+        execution.completed_at::text as execution_completed_at,
+        execution.updated_at::text as execution_updated_at,
+        coalesce(execution_counts.provider_execution_count, 0)::int as provider_execution_count
+      from actions a
+      left join customers c on c.id = a.customer_id
+      left join invoices i on i.id = a.invoice_id
+      left join lateral (
+        select full_name, email, role
+        from contacts
+        where customer_id = a.customer_id
+        order by is_primary desc, created_at asc
+        limit 1
+      ) contact on true
+      left join lateral (
+        select state, requested_at, decided_at, expires_at
+        from approval_records
+        where action_id = a.id
+        order by requested_at desc
+        limit 1
+      ) approval on true
+      left join lateral (
+        select
+          id,
+          idempotency_key,
+          provider,
+          subject,
+          body,
+          state,
+          generated_by_agent_run_id,
+          created_at,
+          updated_at
+        from communication_drafts
+        where action_id = a.id
+          and channel = 'email'
+        order by updated_at desc, created_at desc
+        limit 1
+      ) draft on true
+      left join lateral (
+        select
+          provider,
+          provider_message_id,
+          direction,
+          state,
+          subject,
+          sent_at,
+          received_at,
+          updated_at
+        from communication_messages
+        where action_id = a.id
+          or (draft.id is not null and draft_id = draft.id)
+        order by coalesce(sent_at, received_at, created_at) desc
+        limit 1
+      ) message on true
+      left join lateral (
+        select
+          provider,
+          operation,
+          state,
+          provider_execution_id,
+          attempts,
+          last_error,
+          attempted_at,
+          completed_at,
+          updated_at
+        from provider_executions
+        where action_id = a.id
+          or (draft.id is not null and draft_id = draft.id)
+          or (message.provider_message_id is not null and message_id in (
+            select id
+            from communication_messages
+            where provider_message_id = message.provider_message_id
+              and tenant_id = a.tenant_id
+          ))
+        order by updated_at desc, created_at desc
+        limit 1
+      ) execution on true
+      left join lateral (
+        select count(*)::int as provider_execution_count
+        from provider_executions
+        where action_id = a.id
+          or (draft.id is not null and draft_id = draft.id)
+      ) execution_counts on true
+      where a.company_id = :companyId
+        and a.action_type in ('collect_invoice', 'send_reminder')
+        and coalesce(a.metadata->>'case_id', a.metadata->>'caseId', :caseId) = :caseId
+      order by
+        case a.priority
+          when 'urgent' then 1
+          when 'high' then 2
+          when 'medium' then 3
+          when 'low' then 4
+          else 99
+        end,
+        a.created_at asc
+      limit 8
+    `,
+    { companyId, caseId },
+  );
+}
+
 function buildForecastState(
   forecastRun: ForecastRunRow | undefined,
   points: Cp3ForecastPoint[],
@@ -609,11 +814,52 @@ function buildAgentState(
   };
 }
 
+function buildCp4EmailApprovalState(
+  rows: Cp4EmailApprovalRow[],
+  gmailProvider: Cp3ProviderStatus,
+): Cp4EmailApprovalState {
+  if (rows.length === 0) {
+    return {
+      state: "unavailable",
+      message: "No email-capable approval actions are persisted for this company/case yet.",
+      provider: gmailProvider,
+      items: [],
+      totals: {
+        actionCount: 0,
+        draftCount: 0,
+        approvedCount: 0,
+        rejectedCount: 0,
+        sendEligibleCount: 0,
+        providerExecutionCount: 0,
+      },
+    };
+  }
+
+  const items = rows.map((row) => toCp4EmailApprovalItem(row, gmailProvider));
+
+  return {
+    state: "ready",
+    message:
+      "Email actions are shown as internal drafts and approval-gated send attempts. This route is read-only and never sends mail.",
+    provider: gmailProvider,
+    items,
+    totals: {
+      actionCount: items.length,
+      draftCount: items.filter((item) => item.draft).length,
+      approvedCount: items.filter((item) => item.approval.state === "approved").length,
+      rejectedCount: items.filter((item) => item.approval.state === "rejected").length,
+      sendEligibleCount: items.filter((item) => item.sendEligibility.eligible).length,
+      providerExecutionCount: rows.reduce((sum, row) => sum + row.provider_execution_count, 0),
+    },
+  };
+}
+
 function buildProviderStatuses(executions: ProviderExecutionRow[]): Cp3ProviderStatus[] {
   const byProvider = new Map(executions.map((execution) => [execution.provider.toLowerCase(), execution]));
   const fireworksConfigured = hasEnv("FIREWORKS_API_KEY") && (hasEnv("FIREWORKS_MODEL") || hasEnv("FIREWORKS_BASE_URL"));
   const langSmithRequested = process.env.LANGSMITH_TRACING === "true";
   const langSmithConfigured = langSmithRequested && hasEnv("LANGSMITH_API_KEY") && hasEnv("LANGSMITH_PROJECT");
+  const gmailConfigured = hasGmailEnv();
 
   return [
     {
@@ -655,11 +901,13 @@ function buildProviderStatuses(executions: ProviderExecutionRow[]): Cp3ProviderS
     {
       key: "gmail",
       name: "Gmail",
-      status: "unavailable",
+      status: gmailConfigured ? "configured" : "unavailable",
       capability: "Approval-gated email execution",
-      configured: false,
+      configured: gmailConfigured,
       executionEnabled: false,
-      message: "Gmail OAuth, drafts, and sends are reserved for CP4. CP3 actions are recommendations only.",
+      message: gmailConfigured
+        ? "Gmail env is present, but OAuth connection state is not exposed by this read-only UI lane. Send attempts remain disabled until the provider/runtime lanes explicitly enable execution."
+        : "Gmail env is missing or incomplete. Internal approval and draft review can still be shown, but Gmail sends are unavailable.",
       lastExecution: byProvider.get("gmail") ? toLastExecution(byProvider.get("gmail")!) : null,
     },
     {
@@ -721,6 +969,115 @@ function toRecommendedAction(row: ActionRow): Cp3RecommendedAction {
           : "Provider execution is not enabled in CP3.",
       providerExecutionCount: row.provider_execution_count,
     },
+  };
+}
+
+function toCp4EmailApprovalItem(
+  row: Cp4EmailApprovalRow,
+  gmailProvider: Cp3ProviderStatus,
+): Cp4EmailApprovalItem {
+  const approvalState = row.approval_state ?? (row.action_state === "needs_approval" ? "pending" : "not_requested");
+  const blockers: string[] = [];
+
+  if (approvalState !== "approved") {
+    blockers.push("Human approval is not recorded as approved.");
+  }
+
+  if (!row.draft_id || !row.draft_body_preview) {
+    blockers.push("No internal email draft is persisted for this action.");
+  }
+
+  if (!row.contact_email) {
+    blockers.push("No customer contact email is available.");
+  }
+
+  if (!gmailProvider.executionEnabled) {
+    blockers.push("Gmail provider execution is unavailable in this runtime.");
+  }
+
+  const eligible = blockers.length === 0;
+
+  return {
+    actionExternalId: row.action_external_id ?? row.action_idempotency_key,
+    actionState: row.action_state,
+    actionType: row.action_type,
+    title: row.title,
+    expectedCashImpactCents: row.expected_cash_impact_cents,
+    customer: {
+      externalId: row.customer_external_id,
+      name: row.customer_name,
+    },
+    contact: {
+      fullName: row.contact_full_name,
+      email: row.contact_email,
+      role: row.contact_role,
+    },
+    invoice: {
+      externalId: row.invoice_external_id,
+      invoiceNumber: row.invoice_number,
+    },
+    approval: {
+      required: approvalState !== "not_requested",
+      state: approvalState,
+      requestedAt: row.approval_requested_at,
+      decidedAt: row.approval_decided_at,
+      expiresAt: row.approval_expires_at,
+      message:
+        approvalState === "approved"
+          ? "Human approval is recorded; provider readiness still gates email execution."
+          : approvalState === "rejected"
+            ? "This action was rejected and must not be sent."
+            : "Needs human approval before any Gmail draft/send attempt.",
+    },
+    draft: row.draft_id
+      ? {
+          idempotencyKey: row.draft_idempotency_key ?? row.draft_id,
+          channel: "email",
+          provider: row.draft_provider,
+          subject: row.draft_subject,
+          bodyPreview: row.draft_body_preview ?? "",
+          state: row.draft_state ?? "draft",
+          generatedByAgentRunId: row.draft_agent_run_id,
+          createdAt: row.draft_created_at ?? "",
+          updatedAt: row.draft_updated_at ?? "",
+        }
+      : null,
+    sendEligibility: {
+      eligible,
+      reason: eligible ? "Approved action with Gmail execution enabled." : blockers[0] ?? "Send attempt is gated.",
+      blockers,
+    },
+    lastMessage: row.message_state
+      ? {
+          provider: row.message_provider,
+          providerMessageId: row.provider_message_id,
+          direction: row.message_direction ?? "outbound",
+          state: row.message_state,
+          subject: row.message_subject,
+          sentAt: row.message_sent_at,
+          receivedAt: row.message_received_at,
+          updatedAt: row.message_updated_at ?? "",
+        }
+      : null,
+    lastProviderExecution: toCp4ProviderExecution(row),
+  };
+}
+
+function toCp4ProviderExecution(row: Cp4EmailApprovalRow): Cp4ProviderExecutionSummary | null {
+  if (!row.execution_provider || !row.execution_operation || !row.execution_state) {
+    return null;
+  }
+
+  return {
+    provider: row.execution_provider,
+    operation: row.execution_operation,
+    state: row.execution_state,
+    providerExecutionId: row.provider_execution_id,
+    attempts: row.execution_attempts ?? 0,
+    lastError: row.execution_last_error,
+    attemptedAt: row.execution_attempted_at,
+    completedAt: row.execution_completed_at,
+    updatedAt: row.execution_updated_at ?? "",
   };
 }
 
@@ -864,6 +1221,16 @@ function pickNumber(value: Record<string, unknown>, keys: string[]): number | nu
 
 function hasEnv(key: string) {
   return typeof process.env[key] === "string" && process.env[key]!.trim().length > 0;
+}
+
+function hasGmailEnv() {
+  return [
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_REDIRECT_URI",
+    "GMAIL_ENCRYPTION_KEY",
+    "GMAIL_SENDER_EMAIL",
+  ].every(hasEnv);
 }
 
 function formatIdentifier(value: string) {

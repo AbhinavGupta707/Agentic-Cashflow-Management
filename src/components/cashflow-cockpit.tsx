@@ -17,14 +17,20 @@ import {
   FilePlus2,
   FileText,
   GitBranch,
+  History,
   Inbox,
   LineChart,
+  LockKeyhole,
   Loader2,
+  Mail,
   MailCheck,
+  MailWarning,
   RadioTower,
   RefreshCw,
+  Send,
   ShieldCheck,
   UploadCloud,
+  XCircle,
 } from "lucide-react";
 
 import { DataState, UpdatedAt } from "@/components/data-state";
@@ -34,6 +40,7 @@ import type {
   Cp3ForecastCockpitState,
   Cp3ForecastPoint,
   Cp3ProviderStatus,
+  Cp4EmailApprovalItem,
 } from "@/server/db/cp3-forecast-cockpit-contract";
 import type { IngestionStatusApiResponse, IngestionStatusState } from "@/server/db/ingestion-status-contract";
 
@@ -421,6 +428,11 @@ function ReadyShell({
             legacyActions={data.recommendedActions}
             state={cp3State}
           />
+
+          <Cp4EmailApprovalPanel
+            currency={data.company.baseCurrency}
+            state={cp3State}
+          />
         </div>
 
         <aside className="space-y-5">
@@ -738,6 +750,266 @@ function Cp3ActionQueuePanel({
         ))}
       </div>
     </section>
+  );
+}
+
+function Cp4EmailApprovalPanel({
+  state,
+  currency,
+}: {
+  state: Cp3PanelState;
+  currency: string;
+}) {
+  if (state.kind === "loading") {
+    return (
+      <DataState
+        title="Loading CP4 email approval state"
+        description="The cockpit is reading email draft, approval, provider, and communication state from the read-only aggregate."
+        variant="loading"
+      />
+    );
+  }
+
+  if (state.kind === "unavailable") {
+    return (
+      <DataState
+        title="CP4 email approval route unavailable"
+        description={state.message}
+        variant="unavailable"
+      />
+    );
+  }
+
+  if (state.kind === "error") {
+    return (
+      <DataState
+        title="CP4 email approval state failed"
+        description={state.message}
+        variant="error"
+      />
+    );
+  }
+
+  const emailState = state.data.cp4EmailApproval;
+
+  if (emailState.state === "unavailable") {
+    return (
+      <DataState
+        title="CP4 email approval not ready"
+        description={`${emailState.message} Gmail provider state: ${emailState.provider.message}`}
+        variant="unavailable"
+      />
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-ink-100 bg-white p-5 shadow-panel">
+      <div className="flex flex-col gap-3 border-b border-ink-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-ledger-blue">
+            <MailCheck aria-hidden="true" size={18} />
+            <h2 className="text-base font-semibold text-ink-900">CP4 email approval</h2>
+          </div>
+          <p className="mt-1 text-sm leading-6 text-ink-500">
+            {emailState.message}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <span className={`rounded-md border px-2.5 py-1 text-xs font-medium ${providerStatusClass(emailState.provider.status)}`}>
+            Gmail {providerStatusLabel(emailState.provider.status)}
+          </span>
+          <span className="rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-700">
+            Sends require approval + provider execution
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-5">
+        <MetricTile label="Email actions" value={String(emailState.totals.actionCount)} tone="neutral" />
+        <MetricTile label="Drafts" value={String(emailState.totals.draftCount)} tone={emailState.totals.draftCount > 0 ? "clear" : "watch"} />
+        <MetricTile label="Approved" value={String(emailState.totals.approvedCount)} tone={emailState.totals.approvedCount > 0 ? "clear" : "watch"} />
+        <MetricTile label="Send eligible" value={String(emailState.totals.sendEligibleCount)} tone={emailState.totals.sendEligibleCount > 0 ? "clear" : "risk"} />
+        <MetricTile label="Provider logs" value={String(emailState.totals.providerExecutionCount)} tone="neutral" />
+      </div>
+
+      <div className="mt-4 rounded-md border border-ink-100 bg-ink-50 p-3">
+        <div className="flex items-start gap-2">
+          <LockKeyhole aria-hidden="true" className="mt-0.5 shrink-0 text-ink-500" size={16} />
+          <p className="text-xs leading-5 text-ink-600">
+            {emailState.provider.message} No OAuth tokens, hidden env values, provider payloads, or raw uploaded bytes are exposed here.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-4">
+        {emailState.items.map((item) => (
+          <EmailApprovalCard
+            currency={currency}
+            item={item}
+            key={item.actionExternalId}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EmailApprovalCard({
+  item,
+  currency,
+}: {
+  item: Cp4EmailApprovalItem;
+  currency: string;
+}) {
+  const sendDisabled = !item.sendEligibility.eligible;
+
+  return (
+    <article className="rounded-lg border border-ink-100">
+      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(300px,0.75fr)]">
+        <div className="min-w-0">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink-900">{item.customer.name ?? "Unassigned customer"}</p>
+              <p className="mt-1 break-words text-sm leading-6 text-ink-600">{item.title}</p>
+            </div>
+            <StatusPill label={capitalize(item.approval.state)} state={item.approval.state} />
+          </div>
+
+          <div className="mt-3 grid gap-2 text-xs text-ink-600 sm:grid-cols-2">
+            <LinkageRow label="Action" value={formatActionType(item.actionType)} />
+            <LinkageRow label="Expected cash" value={formatCurrency(item.expectedCashImpactCents, currency)} />
+            <LinkageRow label="Contact" value={formatContactValue(item)} />
+            <LinkageRow label="Invoice" value={item.invoice.invoiceNumber ?? "No invoice link"} />
+          </div>
+
+          <p className="mt-3 text-xs leading-5 text-ink-500">
+            {item.approval.message}
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 text-xs font-medium text-ink-400 disabled:cursor-not-allowed"
+              disabled
+              type="button"
+            >
+              <CheckCircle2 aria-hidden="true" size={15} />
+              Approve draft
+            </button>
+            <button
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 text-xs font-medium text-ink-400 disabled:cursor-not-allowed"
+              disabled
+              type="button"
+            >
+              <XCircle aria-hidden="true" size={15} />
+              Reject draft
+            </button>
+            <button
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-ink-900 px-3 text-xs font-medium text-white transition disabled:cursor-not-allowed disabled:bg-ink-300"
+              disabled={sendDisabled}
+              type="button"
+            >
+              {sendDisabled ? <LockKeyhole aria-hidden="true" size={15} /> : <Send aria-hidden="true" size={15} />}
+              {sendDisabled ? "Send gated" : "Attempt Gmail send"}
+            </button>
+          </div>
+
+          <p className="mt-2 text-xs leading-5 text-ink-500">
+            Approval/rejection write routes are owned by the CP4 runtime lane. Send controls only become active when the action is approved and Gmail execution is explicitly enabled.
+          </p>
+        </div>
+
+        <div className="min-w-0 rounded-md border border-ink-100 bg-ink-50 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              {item.draft ? (
+                <Mail aria-hidden="true" className="shrink-0 text-ledger-blue" size={16} />
+              ) : (
+                <MailWarning aria-hidden="true" className="shrink-0 text-ledger-amber" size={16} />
+              )}
+              <p className="truncate text-sm font-semibold text-ink-900">
+                {item.draft?.subject ?? "No internal draft persisted"}
+              </p>
+            </div>
+            <span className="shrink-0 rounded-md border border-ink-100 bg-white px-2 py-1 text-xs text-ink-600">
+              {capitalize(item.draft?.state ?? "missing")}
+            </span>
+          </div>
+          <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-ink-600">
+            {item.draft?.bodyPreview || "Draft preview will appear here after the CP4 runtime lane persists an internal email draft. Nothing is sent from this read-only cockpit view."}
+          </p>
+          <div className="mt-3 grid gap-2 text-xs text-ink-600">
+            <LinkageRow label="Draft key" value={item.draft?.idempotencyKey ?? "Not available"} />
+            <LinkageRow label="Generated by" value={item.draft?.generatedByAgentRunId ? "Agent run linked" : "No agent link"} />
+            <LinkageRow label="Eligibility" value={item.sendEligibility.eligible ? "Ready for provider route" : item.sendEligibility.reason} />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 border-t border-ink-100 bg-white px-4 py-3 lg:grid-cols-2">
+        <CommunicationHistory item={item} />
+        <SendBlockers item={item} />
+      </div>
+    </article>
+  );
+}
+
+function CommunicationHistory({ item }: { item: Cp4EmailApprovalItem }) {
+  return (
+    <div className="min-w-0 rounded-md border border-ink-100 p-3">
+      <div className="flex items-center gap-2">
+        <History aria-hidden="true" className="text-ink-500" size={16} />
+        <p className="text-sm font-semibold text-ink-900">Communication history</p>
+      </div>
+      <div className="mt-3 grid gap-2 text-xs text-ink-600">
+        {item.lastMessage ? (
+          <>
+            <LinkageRow label="Last message" value={`${capitalize(item.lastMessage.direction)} · ${capitalize(item.lastMessage.state)}`} />
+            <LinkageRow label="Provider" value={item.lastMessage.provider ?? "Not recorded"} />
+            <LinkageRow label="Message ID" value={item.lastMessage.providerMessageId ?? "Not recorded"} />
+            <LinkageRow label="Updated" value={formatOptionalDateTime(item.lastMessage.updatedAt)} />
+          </>
+        ) : (
+          <p>No outbound or inbound communication row is linked yet.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SendBlockers({ item }: { item: Cp4EmailApprovalItem }) {
+  return (
+    <div className="min-w-0 rounded-md border border-ink-100 p-3">
+      <div className="flex items-center gap-2">
+        <LockKeyhole aria-hidden="true" className="text-ink-500" size={16} />
+        <p className="text-sm font-semibold text-ink-900">Send attempt state</p>
+      </div>
+      <div className="mt-3 grid gap-2 text-xs text-ink-600">
+        {item.lastProviderExecution ? (
+          <>
+            <LinkageRow label="Last provider log" value={`${item.lastProviderExecution.provider} · ${item.lastProviderExecution.operation}`} />
+            <LinkageRow label="Execution state" value={capitalize(item.lastProviderExecution.state)} />
+            <LinkageRow label="Provider ID" value={item.lastProviderExecution.providerExecutionId ?? "Not recorded"} />
+            <LinkageRow label="Attempts" value={String(item.lastProviderExecution.attempts)} />
+          </>
+        ) : (
+          <p>No Gmail provider execution row is linked yet.</p>
+        )}
+        {item.sendEligibility.blockers.length > 0 ? (
+          <ul className="mt-1 grid gap-1 text-ledger-amber">
+            {item.sendEligibility.blockers.map((blocker) => (
+              <li className="break-words" key={blocker}>
+                {blocker}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-ledger-green">No send blockers are reported by the read model.</p>
+        )}
+        {item.lastProviderExecution?.lastError ? (
+          <p className="break-words text-ledger-red">{item.lastProviderExecution.lastError}</p>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -1546,6 +1818,14 @@ function formatActionType(value: string) {
   return capitalize(value);
 }
 
+function formatContactValue(item: Cp4EmailApprovalItem) {
+  if (item.contact.email && item.contact.fullName) {
+    return `${item.contact.fullName} · ${item.contact.email}`;
+  }
+
+  return item.contact.email ?? item.contact.fullName ?? "No contact email";
+}
+
 function providerStatusLabel(status: Cp3ProviderStatus["status"]) {
   if (status === "connected") {
     return "Connected";
@@ -1608,4 +1888,8 @@ function formatDateTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatOptionalDateTime(value: string | null) {
+  return value ? formatDateTime(value) : "Not recorded";
 }

@@ -151,6 +151,93 @@ export type Cp3ProviderStatus = {
   } | null;
 };
 
+export type Cp4EmailDraftPreview = {
+  idempotencyKey: string;
+  channel: "email";
+  provider: string | null;
+  subject: string | null;
+  bodyPreview: string;
+  state: string;
+  generatedByAgentRunId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Cp4CommunicationMessageSummary = {
+  provider: string | null;
+  providerMessageId: string | null;
+  direction: string;
+  state: string;
+  subject: string | null;
+  sentAt: string | null;
+  receivedAt: string | null;
+  updatedAt: string;
+};
+
+export type Cp4ProviderExecutionSummary = {
+  provider: string;
+  operation: string;
+  state: string;
+  providerExecutionId: string | null;
+  attempts: number;
+  lastError: string | null;
+  attemptedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+};
+
+export type Cp4EmailApprovalItem = {
+  actionExternalId: string;
+  actionState: string;
+  actionType: string;
+  title: string;
+  expectedCashImpactCents: number;
+  customer: {
+    externalId: string | null;
+    name: string | null;
+  };
+  contact: {
+    fullName: string | null;
+    email: string | null;
+    role: string | null;
+  };
+  invoice: {
+    externalId: string | null;
+    invoiceNumber: string | null;
+  };
+  approval: {
+    required: boolean;
+    state: string;
+    requestedAt: string | null;
+    decidedAt: string | null;
+    expiresAt: string | null;
+    message: string;
+  };
+  draft: Cp4EmailDraftPreview | null;
+  sendEligibility: {
+    eligible: boolean;
+    reason: string;
+    blockers: string[];
+  };
+  lastMessage: Cp4CommunicationMessageSummary | null;
+  lastProviderExecution: Cp4ProviderExecutionSummary | null;
+};
+
+export type Cp4EmailApprovalState = {
+  state: Cp3SectionState;
+  message: string;
+  provider: Cp3ProviderStatus;
+  items: Cp4EmailApprovalItem[];
+  totals: {
+    actionCount: number;
+    draftCount: number;
+    approvedCount: number;
+    rejectedCount: number;
+    sendEligibleCount: number;
+    providerExecutionCount: number;
+  };
+};
+
 export type Cp3ForecastCockpitState = {
   companyExternalId: string;
   caseId: string;
@@ -158,6 +245,7 @@ export type Cp3ForecastCockpitState = {
   generatedAt: string;
   forecast: Cp3ForecastState;
   actionPlan: Cp3ActionState;
+  cp4EmailApproval: Cp4EmailApprovalState;
   agent: Cp3AgentState;
   providers: Cp3ProviderStatus[];
 };
@@ -181,5 +269,5 @@ export const CP3_FORECAST_COCKPIT_CONTRACT_NOTES = [
   "GET /api/cp3/forecast-cockpit is read-only and never executes provider actions",
   "top-level unavailable means Aurora Data API configuration is absent; section-level unavailable means CP3 data is not persisted yet",
   "provider request/response payloads, OAuth tokens, raw uploaded bytes, and hidden env values are intentionally excluded",
-  "Gmail and voice execution remain unavailable during CP3 even if rows or future credentials exist",
+  "Gmail execution stays approval-gated and disabled unless an action is approved and the provider status explicitly permits execution",
 ] as const;

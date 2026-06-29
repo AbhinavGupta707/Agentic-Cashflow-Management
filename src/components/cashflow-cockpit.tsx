@@ -46,7 +46,13 @@ import type { IngestionStatusApiResponse, IngestionStatusState } from "@/server/
 import type { ProductOverviewState } from "@/server/db/product-overview-contract";
 import type { ProductScenariosState } from "@/server/db/product-scenarios-contract";
 import type { ProviderStatus } from "@/server/db/provider-status-contract";
-import type { ProductActionsState, ProductActionSummary } from "@/server/repositories/product-actions";
+import type {
+  ProductActionDecisionResult,
+  ProductActionDetail,
+  ProductActionsState,
+  ProductActionSummary,
+  ProductDraftEditResult,
+} from "@/server/repositories/product-actions";
 import type { ProductAgentActivityState, ProductActivityItem } from "@/server/repositories/product-agent-activity";
 import type { ProductCustomerListItem, ProductCustomersState } from "@/server/repositories/product-customers";
 import type { VoiceProviderReadiness } from "@/server/voice/contracts";
@@ -60,6 +66,12 @@ type Loadable<T> =
 type ProductApiResponse<T> =
   | { status: "ok"; data: T }
   | { status: "degraded"; data: T }
+  | { status: "unavailable"; message: string; missingEnv?: string[] }
+  | { status: "error"; message: string };
+
+type ProductMutationResponse<T> =
+  | { status: "ok"; data: T }
+  | { status: "blocked"; code: string; message: string }
   | { status: "unavailable"; message: string; missingEnv?: string[] }
   | { status: "error"; message: string };
 
@@ -83,6 +95,14 @@ type ProductAction = {
   isNegative?: boolean;
   providerNote: string;
 };
+
+type ActionMutation = "approve" | "edit" | "reject";
+
+type ActionMutationState =
+  | { kind: "idle" }
+  | { kind: "pending"; action: ActionMutation }
+  | { kind: "success"; message: string }
+  | { kind: "error"; message: string };
 
 type CustomerProfile = {
   id: string;
@@ -146,6 +166,9 @@ export function CashflowCockpit() {
   const [productActivityState, setProductActivityState] = useState<Loadable<ProductAgentActivityState>>({ kind: "loading" });
   const [voiceReadinessState, setVoiceReadinessState] = useState<Loadable<VoiceProviderReadiness>>({ kind: "loading" });
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
+  const [selectedActionDetailState, setSelectedActionDetailState] = useState<Loadable<ProductActionDetail>>({ kind: "loading" });
+  const [actionMutationState, setActionMutationState] = useState<ActionMutationState>({ kind: "idle" });
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [scenarioToggles, setScenarioToggles] = useState<Record<ScenarioToggleKey, boolean>>({
     customerAPays: true,
     partialPayment: true,
@@ -232,6 +255,104 @@ export function CashflowCockpit() {
     }
   }, [selectedActionId, viewModel.actions]);
 
+  useEffect(() => {
+    if (!selectedActionId || selectedActionId === "pending-data-action") {
+      setSelectedActionDetailState({ kind: "loading" });
+      return;
+    }
+
+    let active = true;
+    setSelectedActionDetailState({ kind: "loading" });
+
+    async function loadActionDetail() {
+      const result = await fetchProductResource<ProductActionDetail>(
+        `/api/product/actions/${encodeURIComponent(selectedActionId!)}`,
+        "Unable to load action detail.",
+      );
+
+      if (active) {
+        setSelectedActionDetailState(result);
+      }
+    }
+
+    void loadActionDetail();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedActionId]);
+
+  const refreshActions = async () => {
+    const [actionsResult, activityResult] = await Promise.all([
+      fetchProductResource<ProductActionsState>("/api/product/actions", "Unable to load product actions."),
+      fetchProductResource<ProductAgentActivityState>("/api/product/agent-activity", "Unable to load product activity."),
+    ]);
+
+    setProductActionsState(actionsResult);
+    setProductActivityState(activityResult);
+
+    if (selectedActionId && selectedActionId !== "pending-data-action") {
+      setSelectedActionDetailState(
+        await fetchProductResource<ProductActionDetail>(
+          `/api/product/actions/${encodeURIComponent(selectedActionId)}`,
+          "Unable to refresh action detail.",
+        ),
+      );
+    }
+  };
+
+  const mutateActionDecision = async (actionId: string, decision: "approve" | "reject") => {
+    setActionMutationState({ kind: "pending", action: decision });
+
+    const result = await postProductMutation<ProductActionDecisionResult>(
+      `/api/product/actions/${encodeURIComponent(actionId)}/${decision}`,
+      {
+        decisionNote:
+          decision === "approve"
+            ? "Approved from the RunwayOps product cockpit. Provider execution remains separately gated."
+            : "Rejected from the RunwayOps product cockpit.",
+        idempotencyKey: `cockpit-${decision}-${actionId}-${Date.now()}`,
+      },
+    );
+
+    if (result.status === "ok") {
+      setSelectedActionDetailState({ kind: "ready", data: result.data.action });
+      await refreshActions();
+      setActionMutationState({
+        kind: "success",
+        message:
+          decision === "approve"
+            ? "Approval recorded. No email or call was executed by this approval step."
+            : "Action rejected. No provider execution was created.",
+      });
+      return;
+    }
+
+    setActionMutationState({ kind: "error", message: result.message });
+  };
+
+  const saveActionDraft = async (actionId: string, input: { channel: "email" | "voice_script"; subject: string | null; body: string }) => {
+    setActionMutationState({ kind: "pending", action: "edit" });
+
+    const result = await postProductMutation<ProductDraftEditResult>(
+      `/api/product/actions/${encodeURIComponent(actionId)}/edit-draft`,
+      {
+        ...input,
+        idempotencyKey: `cockpit-edit-${actionId}-${Date.now()}`,
+      },
+    );
+
+    if (result.status === "ok") {
+      setSelectedActionDetailState({ kind: "ready", data: result.data.action });
+      await refreshActions();
+      setIsEditOpen(false);
+      setActionMutationState({ kind: "success", message: "Draft updated and returned to the approval queue." });
+      return;
+    }
+
+    setActionMutationState({ kind: "error", message: result.message });
+  };
+
   return (
     <main className="min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-[#050914] text-slate-100">
       <div className="flex min-h-screen">
@@ -254,7 +375,15 @@ export function CashflowCockpit() {
                 actions={viewModel.actions}
                 currency={viewModel.currency}
                 selectedAction={selectedAction}
+                selectedActionDetailState={selectedActionDetailState}
+                mutationState={actionMutationState}
+                isEditOpen={isEditOpen}
                 onSelectAction={setSelectedActionId}
+                onApproveAction={(actionId) => void mutateActionDecision(actionId, "approve")}
+                onRejectAction={(actionId) => void mutateActionDecision(actionId, "reject")}
+                onEditAction={() => setIsEditOpen(true)}
+                onCloseEdit={() => setIsEditOpen(false)}
+                onSaveDraft={(actionId, input) => void saveActionDraft(actionId, input)}
               />
             ) : null}
             {activeScreen === "customers" ? <CustomerScreen currency={viewModel.currency} customer={viewModel.customer} /> : null}
@@ -455,6 +584,29 @@ function OverviewScreen({
 
       {model.alertMessage ? <LiveDataBanner state={model.liveState} message={model.alertMessage} /> : null}
 
+      <Panel className={clsx("border", toneBorder(model.riskNarrative.tone), "bg-white/[0.04]")}>
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-center">
+          <div>
+            <TonePill tone={model.riskNarrative.tone}>Live risk story</TonePill>
+            <h1 className="mt-4 text-2xl font-semibold tracking-normal text-white sm:text-3xl">{model.riskNarrative.title}</h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">{model.riskNarrative.body}</p>
+          </div>
+          <div className="rounded-md border border-white/[0.08] bg-[#0a101a] p-4">
+            <p className="text-xs uppercase tracking-[0.04em] text-slate-500">Recommended next step</p>
+            <p className="mt-2 text-sm font-semibold text-white">{model.riskNarrative.primaryAction}</p>
+            <p className="mt-3 text-sm leading-5 text-emerald-300">{model.riskNarrative.outcome}</p>
+            <button
+              className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-[#4e43ff] px-4 text-sm font-semibold text-white"
+              onClick={onOpenActions}
+              type="button"
+            >
+              Review action
+              <ArrowRight aria-hidden="true" size={16} />
+            </button>
+          </div>
+        </div>
+      </Panel>
+
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.95fr)]">
         <Panel className="min-h-[455px]">
           <PanelHeader
@@ -516,14 +668,40 @@ function ActionsScreen({
   actions,
   currency,
   selectedAction,
+  selectedActionDetailState,
+  mutationState,
+  isEditOpen,
   onSelectAction,
+  onApproveAction,
+  onRejectAction,
+  onEditAction,
+  onCloseEdit,
+  onSaveDraft,
 }: {
   actions: ProductAction[];
   currency: string;
   selectedAction: ProductAction;
+  selectedActionDetailState: Loadable<ProductActionDetail>;
+  mutationState: ActionMutationState;
+  isEditOpen: boolean;
   onSelectAction: (id: string) => void;
+  onApproveAction: (id: string) => void;
+  onRejectAction: (id: string) => void;
+  onEditAction: () => void;
+  onCloseEdit: () => void;
+  onSaveDraft: (id: string, input: { channel: "email" | "voice_script"; subject: string | null; body: string }) => void;
 }) {
   const totalImpact = actions.reduce((sum, action) => sum + action.impactCents, 0);
+  const selectedDetail = selectedActionDetailState.kind === "ready" ? selectedActionDetailState.data : null;
+  const displayedAction = selectedDetail ? mapProductActionSummary(selectedDetail) : selectedAction;
+  const draft = selectedDetail?.draftPreview ?? null;
+  const isPending = mutationState.kind === "pending";
+  const canApprove = Boolean(selectedDetail?.approval.canApprove) && !isPending;
+  const canReject = Boolean(selectedDetail?.approval.canReject) && !isPending;
+  const providerHistoryCount =
+    (selectedDetail?.executionHistory.providerExecutions.length ?? 0) +
+    (selectedDetail?.executionHistory.messages.length ?? 0) +
+    (selectedDetail?.executionHistory.voiceCalls.length ?? 0);
 
   return (
     <div className="space-y-5">
@@ -553,8 +731,15 @@ function ActionsScreen({
             {actions.map((action) => (
               <PendingApprovalCard
                 action={action}
-                active={action.id === selectedAction.id}
+                active={action.id === displayedAction.id}
+                disabled={isPending}
                 key={action.id}
+                onApprove={() => onApproveAction(action.id)}
+                onEdit={() => {
+                  onSelectAction(action.id);
+                  onEditAction();
+                }}
+                onReject={() => onRejectAction(action.id)}
                 onSelect={() => onSelectAction(action.id)}
               />
             ))}
@@ -569,43 +754,98 @@ function ActionsScreen({
           <Panel>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <TonePill tone={selectedAction.priority === "High" ? "risk" : "watch"}>{selectedAction.priority} priority</TonePill>
-                <h2 className="mt-5 text-2xl font-semibold tracking-normal text-slate-100">{selectedAction.customer}</h2>
-                <p className="mt-2 text-sm text-slate-400">{selectedAction.detail}</p>
+                <TonePill tone={displayedAction.priority === "High" ? "risk" : "watch"}>{displayedAction.priority} priority</TonePill>
+                <h2 className="mt-5 text-2xl font-semibold tracking-normal text-slate-100">{displayedAction.customer}</h2>
+                <p className="mt-2 text-sm text-slate-400">{displayedAction.detail}</p>
               </div>
               <div className="text-right">
                 <p className="text-xs uppercase text-slate-500">Est. cash impact</p>
-                <p className={clsx("mt-2 text-2xl font-semibold", selectedAction.isNegative ? "text-red-400" : "text-emerald-400")}>
-                  {formatCurrency(selectedAction.impactCents, currency)}
+                <p className={clsx("mt-2 text-2xl font-semibold", displayedAction.isNegative ? "text-red-400" : "text-emerald-400")}>
+                  {formatCurrency(displayedAction.impactCents, currency)}
                 </p>
               </div>
             </div>
 
+            <ActionDecisionBar
+              actionId={displayedAction.id}
+              canApprove={canApprove}
+              canReject={canReject}
+              mutationState={mutationState}
+              onApprove={onApproveAction}
+              onEdit={onEditAction}
+              onReject={onRejectAction}
+            />
+
+            {mutationState.kind === "success" || mutationState.kind === "error" ? (
+              <div
+                className={clsx(
+                  "mt-4 rounded-md border p-3 text-sm",
+                  mutationState.kind === "success"
+                    ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                    : "border-red-400/30 bg-red-400/10 text-red-200",
+                )}
+              >
+                {mutationState.message}
+              </div>
+            ) : null}
+
             <div className="mt-8 flex gap-8 border-b border-white/[0.08] text-sm">
               <button className="border-b-2 border-[#7368ff] pb-3 font-medium text-[#8c84ff]" type="button">Why this action?</button>
-              <button className="pb-3 text-slate-500" type="button">History</button>
+              <button className="pb-3 text-slate-500" type="button">History {providerHistoryCount > 0 ? `(${providerHistoryCount})` : ""}</button>
             </div>
 
             <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,1fr)_245px]">
               <div>
                 <h3 className="text-sm font-medium text-slate-100">Action explanation</h3>
-                <p className="mt-3 max-w-[610px] text-sm leading-6 text-slate-400">{selectedAction.rationale}</p>
-                <h3 className="mt-8 text-sm font-medium text-slate-100">
-                  {selectedAction.channel === "Phone" ? "Call script preview" : "Draft email preview"}
-                </h3>
-                <pre className="mt-3 whitespace-pre-wrap rounded-md border border-white/[0.08] bg-[#0a101a] p-5 font-mono text-xs leading-6 text-slate-300">
-                  {selectedAction.draftPreview}
-                </pre>
+                <p className="mt-3 max-w-[610px] text-sm leading-6 text-slate-400">{displayedAction.rationale}</p>
+                <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-sm font-medium text-slate-100">
+                    {displayedAction.channel === "Phone" ? "Call script preview" : "Draft email preview"}
+                  </h3>
+                  <DraftSourceBadge draft={draft} state={selectedActionDetailState} />
+                </div>
+                <ActionPreviewBlock
+                  action={displayedAction}
+                  detailState={selectedActionDetailState}
+                />
               </div>
               <div className="rounded-md border border-white/[0.08] bg-white/[0.035] p-5">
                 <p className="text-sm font-medium text-slate-100">Payment behavior</p>
                 <ul className="mt-4 space-y-3 text-sm text-slate-400">
-                  <li>Average days to pay: 41 days</li>
-                  <li>On-time payment rate: 64%</li>
-                  <li>Last contact: 18 days ago</li>
+                  <li>Terms: {selectedDetail?.customerContext.paymentTermsDays ?? "unknown"} days</li>
+                  <li>Contact: {selectedDetail?.customerContext.contact.name ?? "not assigned"}</li>
+                  <li>Invoice: {selectedDetail?.invoice.invoiceNumber ?? "not linked"}</li>
                 </ul>
               </div>
             </div>
+
+            {selectedDetail?.evidence.length ? (
+              <div className="mt-7 rounded-md border border-white/[0.08] bg-white/[0.025] p-5">
+                <h3 className="text-sm font-medium text-slate-100">Evidence trail</h3>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {selectedDetail.evidence.slice(0, 4).map((item) => (
+                    <EvidenceChip
+                      detail={item.detail}
+                      key={`${item.type}-${item.label}-${item.occurredAt ?? "pending"}`}
+                      label={item.label}
+                      type={item.type}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {selectedDetail?.agentTrace.traceUrl ? (
+              <a
+                className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-[#8279ff] hover:text-white"
+                href={selectedDetail.agentTrace.traceUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Open LangSmith trace
+                <ExternalLink aria-hidden="true" size={16} />
+              </a>
+            ) : null}
           </Panel>
 
           <Panel>
@@ -616,9 +856,13 @@ function ActionsScreen({
                   <h3 className="text-lg font-semibold text-slate-100">Compliance & Guardrails</h3>
                 </div>
                 <div className="mt-5 space-y-3 text-sm text-slate-400">
-                  <Guardrail label="Human approval required before any outbound message or call." />
-                  <Guardrail label="No provider ID is shown until a real provider execution exists." />
-                  <Guardrail label={selectedAction.providerNote} />
+                  {(selectedDetail?.guardrails.length ? selectedDetail.guardrails : [
+                    "Human approval required before any outbound message or call.",
+                    "No provider ID is shown until a real provider execution exists.",
+                    displayedAction.providerNote,
+                  ]).map((guardrail) => (
+                    <Guardrail key={guardrail} label={guardrail} />
+                  ))}
                 </div>
               </div>
               <TonePill tone="good">Human approval required</TonePill>
@@ -626,6 +870,16 @@ function ActionsScreen({
           </Panel>
         </div>
       </div>
+
+      {isEditOpen ? (
+        <ActionDraftEditor
+          action={displayedAction}
+          detail={selectedDetail}
+          isSaving={mutationState.kind === "pending" && mutationState.action === "edit"}
+          onClose={onCloseEdit}
+          onSave={onSaveDraft}
+        />
+      ) : null}
     </div>
   );
 }
@@ -739,7 +993,7 @@ function CustomerScreen({ currency, customer }: { currency: string; customer: Cu
               <div className="mt-6 border-t border-white/[0.08] pt-5">
                 <div className="flex items-center justify-between">
                   <p className="text-xs uppercase text-slate-500">Call script preview</p>
-                  <span className="text-xs text-[#8279ff]">Use this script</span>
+              <span className="text-xs text-[#8279ff]">Use this script</span>
                 </div>
                 <pre className="mt-4 whitespace-pre-wrap rounded-md border border-white/[0.08] bg-[#0a101a] p-4 font-mono text-xs leading-6 text-slate-300">{`Hi ${customer.contactName}, it's James from Marlow & Finch.\nI'm calling about ${customer.invoiceLabel} for ${formatCurrency(customer.outstandingCents, currency)}.\nI understand the PO was expected today. Is everything in place so we can process payment this week?`}</pre>
               </div>
@@ -750,7 +1004,7 @@ function CustomerScreen({ currency, customer }: { currency: string; customer: Cu
             <PanelHeader title="Supporting evidence" right={<span className="text-sm text-[#8279ff]">View all</span>} />
             <div className="mt-5 space-y-3">
               {[
-                ["Invoice #INV-1044", "£18,600 · Due May 12, 2025", "PDF", FileText],
+                ["Selected invoice", `${formatCurrency(customer.outstandingCents, currency)} · Due date from live ledger`, "PDF", FileText],
                 ["Call transcript - May 9", `With ${customer.contactName}`, "Transcript", Activity],
                 ["Email reply - Apr 28", "Re: Invoice #INV-1017", "EML", Mail],
               ].map(([title, detail, kind, Icon]) => (
@@ -774,7 +1028,8 @@ function ForecastScreen({
   onToggle: (key: ScenarioToggleKey) => void;
 }) {
   const activeCount = Object.values(toggles).filter(Boolean).length;
-  const scenarioShift = activeCount * 7600;
+  const scenarioShiftCents = model.scenarioProjections.length > 0 ? activeCount * 250000 : 0;
+  const controlKeys: ScenarioToggleKey[] = ["customerAPays", "partialPayment", "supplierDeferral"];
 
   return (
     <div className="space-y-5">
@@ -783,14 +1038,7 @@ function ForecastScreen({
         description="Model different scenarios and see the impact on your cash runway."
         controls={<LiveDataMark />}
       />
-      <KpiStrip
-        metrics={[
-          model.overviewMetrics[0],
-          model.overviewMetrics[2],
-          { label: "Best-Case Runway", value: "46 days", helper: "to 29 Jun 2025", tone: "good" },
-          { label: "Worst-Case Runway", value: "18 days", helper: "to 1 Jun 2025", tone: "risk" },
-        ]}
-      />
+      <KpiStrip metrics={model.forecastMetrics} />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.9fr)]">
         <Panel>
           <PanelHeader
@@ -804,34 +1052,23 @@ function ForecastScreen({
               </div>
             }
           />
-          <ProjectionChart shift={scenarioShift} />
+          <ProjectionChart currency={model.currency} projections={model.scenarioProjections} shiftCents={scenarioShiftCents} />
         </Panel>
 
         <Panel>
           <PanelHeader title="Scenario Controls" />
           <p className="mt-2 text-sm text-slate-400">Adjust key assumptions to model outcomes.</p>
           <div className="mt-6 space-y-3">
-            <ScenarioToggle
-              active={toggles.customerAPays}
-              icon={UsersRound}
-              label="Customer A pays Friday"
-              meta="Invoice #INV-1021 · £34,250"
-              onClick={() => onToggle("customerAPays")}
-            />
-            <ScenarioToggle
-              active={toggles.partialPayment}
-              icon={UsersRound}
-              label="Customer B partial payment"
-              meta="50% of £18,600 on 20 May"
-              onClick={() => onToggle("partialPayment")}
-            />
-            <ScenarioToggle
-              active={toggles.supplierDeferral}
-              icon={BriefcaseBusiness}
-              label="Supplier deferred 5 days"
-              meta="All payables pushed out by 5 days"
-              onClick={() => onToggle("supplierDeferral")}
-            />
+            {model.scenarioControls.slice(0, 3).map((control, index) => (
+              <ScenarioToggle
+                active={toggles[controlKeys[index] ?? "customerAPays"]}
+                icon={control.icon}
+                key={control.label}
+                label={control.label}
+                meta={control.meta}
+                onClick={() => onToggle(controlKeys[index] ?? "customerAPays")}
+              />
+            ))}
           </div>
         </Panel>
       </div>
@@ -847,7 +1084,7 @@ function ForecastScreen({
                 label={scenario.label}
                 risk={scenario.risk}
                 tone={scenario.tone}
-                valueCents={scenario.valueCents + scenarioShift * 100}
+                valueCents={scenario.valueCents + scenarioShiftCents}
               />
             ))}
           </div>
@@ -1111,55 +1348,89 @@ function CashflowBars({ points, currency }: { points: ProductViewModel["cashflow
   );
 }
 
-function ProjectionChart({ shift }: { shift: number }) {
-  const baseline = [560, 440, 430, 385, 360, 322, 260, 178, 112, 84].map((value) => value + shift / 1000);
-  const optimistic = [555, 486, 448, 450, 470, 482, 452, 470, 420, 380].map((value) => value + shift / 900);
-  const conservative = [548, 432, 338, 288, 244, 210, 118, 42, -48, -96].map((value) => value + shift / 1200);
+function ProjectionChart({
+  currency,
+  projections,
+  shiftCents,
+}: {
+  currency: string;
+  projections: ProductViewModel["scenarioProjections"];
+  shiftCents: number;
+}) {
+  if (projections.length === 0 || projections.every((projection) => projection.points.length === 0)) {
+    return (
+      <div className="mt-7 flex h-[340px] items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.025] text-sm text-slate-400">
+        Live scenario projections are not available yet.
+      </div>
+    );
+  }
+
+  const visible = projections.slice(0, 3);
+  const allValues = visible.flatMap((projection) => projection.points.map((point) => point.expectedCashCents + shiftCents));
+  const minValue = Math.min(...allValues, 0);
+  const maxValue = Math.max(...allValues, 100);
+  const range = Math.max(1, maxValue - minValue);
+  const latest = visible[0]?.points.at(-1);
+  const latestDate = latest ? formatShortDate(latest.date) : "Latest";
+  const chartColor = (tone: StatusTone) => tone === "good" ? "#4ade80" : tone === "risk" ? "#f87171" : tone === "watch" ? "#f59e0b" : "#7368ff";
+  const projectPointY = (value: number) => 272 - ((value - minValue) / range) * 220;
+  const xFor = (index: number, total: number) => 58 + (total <= 1 ? 0 : index * (620 / (total - 1)));
+  const zeroY = clamp(projectPointY(0), 46, 290);
 
   return (
     <div className="mt-7 h-[340px]">
       <svg className="h-full w-full" role="img" viewBox="0 0 720 340">
-        <rect fill="rgba(239,68,68,0.12)" height="72" width="620" x="58" y="218" />
+        <rect fill="rgba(239,68,68,0.12)" height={Math.max(0, 290 - zeroY)} width="620" x="58" y={zeroY} />
         {[58, 145, 232, 319, 406, 493, 580, 667].map((x) => (
           <line key={x} stroke="rgba(255,255,255,0.08)" strokeDasharray="3 4" x1={x} x2={x} y1="32" y2="292" />
         ))}
         {[56, 110, 164, 218, 272].map((y) => (
           <line key={y} stroke="rgba(255,255,255,0.07)" x1="58" x2="678" y1={y} y2={y} />
         ))}
-        <Polyline values={optimistic} color="#4ade80" dashed />
-        <Polyline values={baseline} color="#7368ff" />
-        <Polyline values={conservative} color="#f59e0b" dashed />
-        {[0, 2, 4, 6, 8].map((index) => {
-          const x = 58 + index * 68.8;
-          const y = projectY(baseline[index]);
-          return <circle cx={x} cy={y} fill="#0b1020" key={index} r="5" stroke="#8177ff" strokeWidth="3" />;
-        })}
+        {visible.map((projection) => (
+          <ProjectionPolyline
+            color={chartColor(projection.tone)}
+            dashed={projection.dashed}
+            key={projection.key}
+            points={projection.points.map((point, index) => ({
+              x: xFor(index, projection.points.length),
+              y: projectPointY(point.expectedCashCents + shiftCents),
+            }))}
+          />
+        ))}
+        {visible[0]?.points.map((point, index) => index % Math.max(1, Math.ceil((visible[0]?.points.length ?? 1) / 5)) === 0 ? (
+          <circle
+            cx={xFor(index, visible[0]?.points.length ?? 1)}
+            cy={projectPointY(point.expectedCashCents + shiftCents)}
+            fill="#0b1020"
+            key={`${point.date}-${index}`}
+            r="5"
+            stroke="#8177ff"
+            strokeWidth="3"
+          />
+        ) : null)}
         <foreignObject height="116" width="185" x="488" y="46">
           <div className="rounded-md border border-white/[0.1] bg-[#0d1420]/95 p-4 text-xs text-slate-300">
-            <p className="text-sm text-white">30 Jun 2025</p>
-            <p className="mt-3 text-emerald-400">Optimistic £312,000</p>
-            <p className="mt-2 text-[#8279ff]">Baseline £84,000</p>
-            <p className="mt-2 text-red-400">Conservative -£42,000</p>
+            <p className="text-sm text-white">{latestDate}</p>
+            {visible.map((projection) => (
+              <p className={clsx("mt-2", toneText(projection.tone))} key={projection.key}>
+                {projection.label} {formatCurrency((projection.points.at(-1)?.expectedCashCents ?? projection.summary.endingCashCents) + shiftCents, currency)}
+              </p>
+            ))}
           </div>
         </foreignObject>
-        <text fill="#94a3b8" fontSize="12" x="4" y="40">£800k</text>
-        <text fill="#94a3b8" fontSize="12" x="4" y="94">£600k</text>
-        <text fill="#94a3b8" fontSize="12" x="4" y="148">£400k</text>
-        <text fill="#94a3b8" fontSize="12" x="4" y="202">£200k</text>
-        <text fill="#94a3b8" fontSize="12" x="25" y="257">£0</text>
-        <text fill="#94a3b8" fontSize="12" x="5" y="310">-£200k</text>
+        <text fill="#94a3b8" fontSize="12" x="4" y="40">{formatCompactCurrency(maxValue, currency)}</text>
+        <text fill="#94a3b8" fontSize="12" x="4" y="148">{formatCompactCurrency(Math.round((maxValue + minValue) / 2), currency)}</text>
+        <text fill="#94a3b8" fontSize="12" x="25" y={zeroY + 4}>£0</text>
+        <text fill="#94a3b8" fontSize="12" x="5" y="310">{formatCompactCurrency(minValue, currency)}</text>
       </svg>
     </div>
   );
 }
 
-function Polyline({ values, color, dashed }: { values: number[]; color: string; dashed?: boolean }) {
-  const points = values.map((value, index) => `${58 + index * 68.8},${projectY(value)}`).join(" ");
-  return <polyline fill="none" points={points} stroke={color} strokeDasharray={dashed ? "7 7" : undefined} strokeLinecap="round" strokeWidth="2.5" />;
-}
-
-function projectY(value: number) {
-  return 218 - (value / 800) * 190;
+function ProjectionPolyline({ points, color, dashed }: { points: Array<{ x: number; y: number }>; color: string; dashed?: boolean }) {
+  const pointList = points.map((point) => `${point.x},${point.y}`).join(" ");
+  return <polyline fill="none" points={pointList} stroke={color} strokeDasharray={dashed ? "7 7" : undefined} strokeLinecap="round" strokeWidth="2.5" />;
 }
 
 function ActionSummaryRow({ action, index }: { action: ProductAction; index: number }) {
@@ -1184,42 +1455,264 @@ function ActionSummaryRow({ action, index }: { action: ProductAction; index: num
 function PendingApprovalCard({
   action,
   active,
+  disabled,
   onSelect,
+  onApprove,
+  onEdit,
+  onReject,
 }: {
   action: ProductAction;
   active: boolean;
+  disabled: boolean;
   onSelect: () => void;
+  onApprove: () => void;
+  onEdit: () => void;
+  onReject: () => void;
 }) {
   const tone = action.priority === "High" ? "risk" : "watch";
 
   return (
-    <button
+    <article
       className={clsx(
         "w-full rounded-lg border p-4 text-left transition",
         active ? toneBorder(tone) : "border-white/[0.08]",
         active ? "bg-white/[0.055]" : "bg-white/[0.025] hover:bg-white/[0.045]",
       )}
-      onClick={onSelect}
-      type="button"
     >
-      <div className="flex items-start gap-4">
-        <TonePill tone={tone}>{action.priority}</TonePill>
-        <div className="min-w-0 flex-1">
-          <p className="text-lg font-semibold text-white">{action.customer}</p>
-          <p className="mt-1 text-sm text-slate-400">{action.detail}</p>
+      <button className="block w-full text-left" onClick={onSelect} type="button">
+        <div className="flex items-start gap-4">
+          <TonePill tone={tone}>{action.priority}</TonePill>
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-semibold text-white">{action.customer}</p>
+            <p className="mt-1 text-sm text-slate-400">{action.detail}</p>
+          </div>
         </div>
-      </div>
+      </button>
       <div className="mt-5 grid grid-cols-3 gap-4 border-t border-white/[0.08] pt-4">
         <MetricBlock label="Cash impact" value={formatCurrency(action.impactCents, action.currency ?? "GBP")} tone={action.isNegative ? "risk" : "good"} />
         <MetricBlock label="Channel" value={action.channel} />
         <MetricBlock label="Confidence" value={action.confidence} tone={action.confidence === "High" ? "good" : "watch"} />
       </div>
       <div className="mt-4 grid grid-cols-3 gap-3">
-        <button className="h-9 rounded-md bg-[#4e43ff] text-sm font-semibold text-white disabled:opacity-55" disabled type="button">Approve</button>
-        <button className="h-9 rounded-md border border-white/[0.1] text-sm font-medium text-[#b3adff]" type="button">Edit</button>
-        <button className="h-9 rounded-md border border-white/[0.1] text-sm font-medium text-[#b3adff]" type="button">Reject</button>
+        <button
+          className="h-9 rounded-md bg-[#4e43ff] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={disabled || action.approvalState === "Approved" || action.approvalState === "Rejected"}
+          onClick={onApprove}
+          type="button"
+        >
+          Approve
+        </button>
+        <button
+          className="h-9 rounded-md border border-white/[0.1] text-sm font-medium text-[#b3adff] disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={disabled || action.approvalState === "Approved"}
+          onClick={onEdit}
+          type="button"
+        >
+          Edit
+        </button>
+        <button
+          className="h-9 rounded-md border border-white/[0.1] text-sm font-medium text-[#b3adff] disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={disabled || action.approvalState === "Approved" || action.approvalState === "Rejected"}
+          onClick={onReject}
+          type="button"
+        >
+          Reject
+        </button>
       </div>
-    </button>
+    </article>
+  );
+}
+
+function ActionDecisionBar({
+  actionId,
+  canApprove,
+  canReject,
+  mutationState,
+  onApprove,
+  onEdit,
+  onReject,
+}: {
+  actionId: string;
+  canApprove: boolean;
+  canReject: boolean;
+  mutationState: ActionMutationState;
+  onApprove: (id: string) => void;
+  onEdit: () => void;
+  onReject: (id: string) => void;
+}) {
+  const pendingAction = mutationState.kind === "pending" ? mutationState.action : null;
+
+  return (
+    <div className="mt-6 grid gap-3 sm:grid-cols-3">
+      <button
+        className="flex h-11 items-center justify-center gap-2 rounded-md bg-[#4e43ff] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(78,67,255,0.28)] disabled:cursor-not-allowed disabled:opacity-45"
+        disabled={!canApprove}
+        onClick={() => onApprove(actionId)}
+        type="button"
+      >
+        {pendingAction === "approve" ? <Loader2 aria-hidden="true" className="animate-spin" size={16} /> : null}
+        Approve
+      </button>
+      <button
+        className="flex h-11 items-center justify-center gap-2 rounded-md border border-white/[0.12] text-sm font-medium text-[#b3adff] disabled:cursor-not-allowed disabled:opacity-45"
+        disabled={mutationState.kind === "pending"}
+        onClick={onEdit}
+        type="button"
+      >
+        Edit
+      </button>
+      <button
+        className="flex h-11 items-center justify-center gap-2 rounded-md border border-white/[0.12] text-sm font-medium text-slate-300 disabled:cursor-not-allowed disabled:opacity-45"
+        disabled={!canReject}
+        onClick={() => onReject(actionId)}
+        type="button"
+      >
+        {pendingAction === "reject" ? <Loader2 aria-hidden="true" className="animate-spin" size={16} /> : null}
+        Reject
+      </button>
+    </div>
+  );
+}
+
+function DraftSourceBadge({ draft, state }: { draft: ProductActionDetail["draftPreview"] | null; state: Loadable<ProductActionDetail> }) {
+  if (state.kind === "loading") {
+    return <StatusBadge label="Loading live detail" tone="watch" />;
+  }
+
+  if (state.kind === "error" || state.kind === "unavailable") {
+    return <StatusBadge label="Detail unavailable" tone="risk" />;
+  }
+
+  if (!draft) {
+    return <StatusBadge label="No draft persisted" tone="watch" />;
+  }
+
+  if (draft.source === "fireworks") {
+    return <StatusBadge label="Live AI generated" tone="good" />;
+  }
+
+  if (draft.source === "deterministic_fallback") {
+    return <StatusBadge label="Deterministic fallback" tone="watch" />;
+  }
+
+  return <StatusBadge label="Persisted draft" tone="accent" />;
+}
+
+function ActionPreviewBlock({ action, detailState }: { action: ProductAction; detailState: Loadable<ProductActionDetail> }) {
+  if (detailState.kind === "loading") {
+    return (
+      <div className="mt-3 flex min-h-[150px] items-center justify-center rounded-md border border-white/[0.08] bg-[#0a101a] text-sm text-slate-400">
+        <Loader2 aria-hidden="true" className="mr-2 animate-spin text-[#8279ff]" size={16} />
+        Generating live action detail...
+      </div>
+    );
+  }
+
+  if (detailState.kind === "error" || detailState.kind === "unavailable") {
+    return (
+      <div className="mt-3 rounded-md border border-red-400/25 bg-red-400/10 p-5 text-sm leading-6 text-red-100">
+        {detailState.message}
+      </div>
+    );
+  }
+
+  const draft = detailState.data.draftPreview;
+  const body =
+    draft?.body ??
+    (action.channel === "Phone"
+      ? scriptToPreviewBody(detailState.data.callScriptPreview)
+      : action.draftPreview);
+  const subject = draft?.subject;
+
+  return (
+    <div className="mt-3 rounded-md border border-white/[0.08] bg-[#0a101a]">
+      {subject ? (
+        <div className="border-b border-white/[0.08] px-5 py-3">
+          <p className="text-xs uppercase tracking-[0.04em] text-slate-500">Subject</p>
+          <p className="mt-1 text-sm font-medium text-slate-100">{subject}</p>
+        </div>
+      ) : null}
+      <pre className="max-h-[340px] whitespace-pre-wrap overflow-auto p-5 font-mono text-xs leading-6 text-slate-300">
+        {body}
+      </pre>
+    </div>
+  );
+}
+
+function ActionDraftEditor({
+  action,
+  detail,
+  isSaving,
+  onClose,
+  onSave,
+}: {
+  action: ProductAction;
+  detail: ProductActionDetail | null;
+  isSaving: boolean;
+  onClose: () => void;
+  onSave: (id: string, input: { channel: "email" | "voice_script"; subject: string | null; body: string }) => void;
+}) {
+  const draft = detail?.draftPreview ?? null;
+  const channel = draft?.channel ?? (action.channel === "Phone" ? "voice_script" : "email");
+  const [subject, setSubject] = useState(draft?.subject ?? "");
+  const [body, setBody] = useState(draft?.body ?? (detail ? scriptToPreviewBody(detail.callScriptPreview) : action.draftPreview));
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/65 px-4 py-6 backdrop-blur-sm sm:items-center">
+      <div className="w-full max-w-3xl rounded-lg border border-white/[0.12] bg-[#080d18] p-6 shadow-[0_30px_90px_rgba(0,0,0,0.45)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Edit {channel === "voice_script" ? "call script" : "email draft"}</h2>
+            <p className="mt-2 text-sm text-slate-400">Changes are saved as a draft and remain subject to human approval.</p>
+          </div>
+          <button className="rounded-md border border-white/[0.1] px-3 py-2 text-sm text-slate-300" onClick={onClose} type="button">
+            Close
+          </button>
+        </div>
+        {channel === "email" ? (
+          <label className="mt-6 block">
+            <span className="text-sm font-medium text-slate-300">Subject</span>
+            <input
+              className="mt-2 h-11 w-full rounded-md border border-white/[0.1] bg-white/[0.035] px-3 text-sm text-white outline-none focus:border-[#7368ff]"
+              onChange={(event) => setSubject(event.target.value)}
+              value={subject}
+            />
+          </label>
+        ) : null}
+        <label className="mt-5 block">
+          <span className="text-sm font-medium text-slate-300">{channel === "voice_script" ? "Call script" : "Draft body"}</span>
+          <textarea
+            className="mt-2 min-h-[280px] w-full resize-y rounded-md border border-white/[0.1] bg-white/[0.035] p-4 font-mono text-xs leading-6 text-white outline-none focus:border-[#7368ff]"
+            onChange={(event) => setBody(event.target.value)}
+            value={body}
+          />
+        </label>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <button className="h-11 rounded-md border border-white/[0.1] px-5 text-sm font-medium text-slate-300" onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button
+            className="flex h-11 items-center justify-center gap-2 rounded-md bg-[#4e43ff] px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={isSaving || body.trim().length === 0}
+            onClick={() => onSave(action.id, { channel, subject: channel === "email" ? subject : null, body })}
+            type="button"
+          >
+            {isSaving ? <Loader2 aria-hidden="true" className="animate-spin" size={16} /> : null}
+            Save draft
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EvidenceChip({ type, label, detail }: { type: ProductActionDetail["evidence"][number]["type"]; label: string; detail: string }) {
+  return (
+    <article className="rounded-md border border-white/[0.08] bg-white/[0.025] p-4">
+      <p className="text-xs uppercase tracking-[0.04em] text-slate-500">{formatIdentifier(type)}</p>
+      <p className="mt-2 text-sm font-medium text-white">{label}</p>
+      <p className="mt-2 text-sm leading-5 text-slate-400">{detail}</p>
+    </article>
   );
 }
 
@@ -1534,6 +2027,25 @@ async function fetchProductResource<T>(path: string, fallbackMessage: string): P
   }
 }
 
+async function postProductMutation<T>(path: string, body: Record<string, unknown>): Promise<ProductMutationResponse<T>> {
+  try {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = (await response.json()) as ProductMutationResponse<T>;
+
+    if (payload.status === "ok" || payload.status === "blocked" || payload.status === "unavailable" || payload.status === "error") {
+      return payload;
+    }
+
+    return { status: "error", message: response.ok ? "Unexpected product mutation response." : `Request failed with HTTP ${response.status}.` };
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "Unable to update product action." };
+  }
+}
+
 type ProductViewModel = {
   companyName: string;
   caseName: string;
@@ -1541,8 +2053,16 @@ type ProductViewModel = {
   generatedAt: string;
   liveState: "live" | "loading" | "unavailable" | "error";
   alertMessage: string | null;
+  riskNarrative: {
+    title: string;
+    body: string;
+    primaryAction: string;
+    outcome: string;
+    tone: StatusTone;
+  };
   readinessSummary: string;
   overviewMetrics: Array<{ label: string; value: string; helper: string; tone: StatusTone }>;
+  forecastMetrics: Array<{ label: string; value: string; helper: string; tone: StatusTone }>;
   cashflowBars: Array<{ label: string; valueCents: number; kind: "net" | "movement" }>;
   actions: ProductAction[];
   approvals: Array<{ id: string; title: string; detail: string }>;
@@ -1550,6 +2070,21 @@ type ProductViewModel = {
   providerStatuses: ProviderView[];
   customer: CustomerProfile;
   agentTimeline: Array<{ title: string; body: string; time: string; tone: StatusTone; icon: ComponentType<{ size?: number; className?: string }> }>;
+  scenarioProjections: Array<{
+    key: string;
+    label: string;
+    tone: StatusTone;
+    dashed?: boolean;
+    summary: {
+      minimumCashCents: number;
+      minimumCashDate: string | null;
+      endingCashCents: number;
+      runwayDays: number | null;
+      shortfallCents: number;
+    };
+    points: Array<{ date: string; expectedCashCents: number }>;
+  }>;
+  scenarioControls: Array<{ label: string; meta: string; icon: ComponentType<{ size?: number; className?: string }> }>;
   scenarioComparison: Array<{ label: string; valueCents: number; tone: StatusTone; risk: string }>;
   recommendedPlan: Array<{ label: string; impact: string; tone: StatusTone }>;
   sensitivityRows: Array<{ label: string; value: number }>;
@@ -1589,6 +2124,7 @@ function buildProductViewModel(
   const actions = buildActions(data, runtime, currency);
   const customer = buildCustomerProfile(data, totalOverdue);
   const providerStatuses = buildProviderViews(runtimeState);
+  const topAction = actions[0];
   const base: ProductViewModel = {
     companyName,
     caseName,
@@ -1601,6 +2137,16 @@ function buildProductViewModel(
         : caseState.kind === "loading"
           ? "Connecting to live case data. Recommendations remain gated until the case is loaded."
         : "Live cashflow data is not connected in this environment. Recommendations, provider outcomes, and approvals remain unavailable until the case data connection is restored.",
+    riskNarrative: buildRiskNarrative({
+      companyName,
+      currency,
+      currentCashCents: data?.company.cashBalanceCents ?? null,
+      forecastLowCents: forecastLow,
+      obligationCents: obligationTotal,
+      obligationDate: openObligations[0]?.dueDate ?? null,
+      action: topAction,
+      liveState,
+    }),
     readinessSummary: providerStatuses.some((provider) => provider.tone === "risk")
       ? "Needs connection."
       : providerStatuses.some((provider) => provider.tone === "watch")
@@ -1632,6 +2178,32 @@ function buildProductViewModel(
         tone: forecastLow < 0 ? "risk" : overdueInvoices.length > 0 ? "watch" : "neutral",
       },
     ],
+    forecastMetrics: [
+      {
+        label: "Current Cash",
+        value: data ? formatCurrency(data.company.cashBalanceCents, currency) : "Pending",
+        helper: data ? `${formatCurrency(forecastLow, currency)} projected low` : "Connect live data",
+        tone: data ? "good" : "neutral",
+      },
+      {
+        label: "Payroll Due",
+        value: obligationTotal > 0 ? formatCurrency(obligationTotal, currency) : "Pending",
+        helper: openObligations[0] ? `due ${formatShortDate(openObligations[0].dueDate)}` : "No obligation loaded",
+        tone: "neutral",
+      },
+      {
+        label: "Best-Case Runway",
+        value: "Pending",
+        helper: "Awaiting scenario projection",
+        tone: "watch",
+      },
+      {
+        label: "Worst-Case Runway",
+        value: "Pending",
+        helper: "Awaiting scenario projection",
+        tone: "watch",
+      },
+    ],
     cashflowBars: buildCashflowBars(data, runtime),
     actions,
     approvals: buildApprovals(actions, runtime?.cp4EmailApproval.items ?? []),
@@ -1639,23 +2211,27 @@ function buildProductViewModel(
     providerStatuses,
     customer,
     agentTimeline: buildAgentTimeline(runtime, ingestionState),
+    scenarioProjections: [],
+    scenarioControls: [
+      { label: "Live scenario controls unavailable", meta: "Connect product scenarios to model assumptions.", icon: SlidersHorizontal },
+    ],
     scenarioComparison: [
       { label: "Baseline", valueCents: 8400000, tone: "accent", risk: "Medium risk" },
       { label: "Optimistic", valueCents: 31200000, tone: "good", risk: "Low risk" },
       { label: "Conservative", valueCents: -4200000, tone: "risk", risk: "High risk" },
     ],
     recommendedPlan: [
-      { label: "Secure Customer A payment", impact: "+7 days", tone: "good" },
+      { label: "Secure highest-impact receivable", impact: "+7 days", tone: "good" },
       { label: "Confirm supplier deferral", impact: "+6 days", tone: "good" },
       { label: "Activate payroll financing", impact: "+25 days", tone: "watch" },
     ],
     sensitivityRows: [
       { label: "Payroll financing", value: 25 },
-      { label: "Customer A pays Friday", value: 7 },
+      { label: "Priority receivable collected", value: 7 },
       { label: "Supplier deferred 5 days", value: 6 },
-      { label: "Customer B 50% payment", value: -8 },
-      { label: "Delay Customer A by 7d", value: -14 },
-      { label: "Lose Customer B payment", value: -18 },
+      { label: "Partial payment slips", value: -8 },
+      { label: "Priority receipt delayed", value: -14 },
+      { label: "Expected receipt lost", value: -18 },
     ],
     evidenceCount:
       ingestionState.kind === "ready"
@@ -1731,6 +2307,16 @@ function applyProductApiData(
       generatedAt: formatRelativeTime(overview.lastUpdatedAt),
       liveState: overview.source.state === "unavailable" ? next.liveState : "live",
       alertMessage: overview.source.state === "ready" ? null : overview.source.message,
+      riskNarrative: buildRiskNarrative({
+        companyName: overview.company.name,
+        currency,
+        currentCashCents: overview.cash.currentCash.valueCents,
+        forecastLowCents: projectedLow.valueCents,
+        obligationCents: upcomingPayroll.valueCents,
+        obligationDate: upcomingPayroll.dueDate,
+        action: overviewActions[0] ?? next.actions[0],
+        liveState: overview.source.state === "unavailable" ? next.liveState : "live",
+      }),
       overviewMetrics: [
         {
           label: "Current Cash",
@@ -1841,8 +2427,57 @@ function applyProductApiData(
 
   if (states.productScenariosState.kind === "ready") {
     const scenarios = states.productScenariosState.data;
+    const projections = scenarios.projections.map((projection) => ({
+      key: projection.key,
+      label: projection.label,
+      tone: scenarioTone(projection.key, projection.summary.maxShortfallCents),
+      dashed: projection.key !== "baseline",
+      summary: {
+        minimumCashCents: projection.summary.minimumCashCents,
+        minimumCashDate: projection.summary.minimumCashDate,
+        endingCashCents: projection.summary.endingCashCents,
+        runwayDays: projection.summary.runwayDays,
+        shortfallCents: projection.summary.maxShortfallCents,
+      },
+      points: projection.series.map((point) => ({
+        date: point.date,
+        expectedCashCents: point.expectedCashCents,
+      })),
+    }));
+    const ranked = [...projections].sort((left, right) => (right.summary.runwayDays ?? 0) - (left.summary.runwayDays ?? 0));
+    const best = ranked[0] ?? projections[0];
+    const worst = [...projections].sort((left, right) => (left.summary.minimumCashCents - right.summary.minimumCashCents))[0] ?? projections[0];
+
     next = {
       ...next,
+      forecastMetrics:
+        projections.length > 0
+          ? [
+              next.forecastMetrics[0],
+              next.forecastMetrics[1],
+              {
+                label: "Best-Case Runway",
+                value: best?.summary.runwayDays === null || best?.summary.runwayDays === undefined ? "Watch" : `${best.summary.runwayDays} days`,
+                helper: best?.summary.minimumCashDate ? `low ${formatShortDate(best.summary.minimumCashDate)}` : "No projected shortfall date",
+                tone: best ? best.tone : "watch",
+              },
+              {
+                label: "Worst-Case Runway",
+                value: worst?.summary.runwayDays === null || worst?.summary.runwayDays === undefined ? "Watch" : `${worst.summary.runwayDays} days`,
+                helper: worst?.summary.minimumCashDate ? `low ${formatShortDate(worst.summary.minimumCashDate)}` : "No projected shortfall date",
+                tone: worst ? worst.tone : "watch",
+              },
+            ]
+          : next.forecastMetrics,
+      scenarioProjections: projections,
+      scenarioControls:
+        scenarios.controls.length > 0
+          ? scenarios.controls.slice(0, 3).map((control) => ({
+              label: control.label,
+              meta: `${formatScenarioControlValue(control.value, control.unit)} · ${control.source.message}`,
+              icon: control.key.includes("supplier") ? BriefcaseBusiness : control.key.includes("spend") ? CircleDollarSign : UsersRound,
+            }))
+          : next.scenarioControls,
       scenarioComparison:
         scenarios.comparisonCards.length > 0
           ? scenarios.comparisonCards.map((card) => ({
@@ -1921,7 +2556,7 @@ function mapProductActionSummary(action: ProductActionSummary): ProductAction {
     rationale: action.whyThisAction,
     draftPreview:
       action.draftPreview?.body ??
-      "Draft preview will appear here after the action detail is opened and generated content is available.",
+      "Live action detail is loading. The generated draft or fallback preview appears in the selected action panel.",
     confidence: action.providerState.outboundOutcomeBackedByProvider
       ? "High"
       : action.draftPreview?.source === "fireworks"
@@ -2318,6 +2953,45 @@ function buildAgentTimeline(runtime: Cp3ForecastCockpitState | null, ingestionSt
   ];
 }
 
+function buildRiskNarrative(input: {
+  companyName: string;
+  currency: string;
+  currentCashCents: number | null;
+  forecastLowCents: number | null;
+  obligationCents: number | null;
+  obligationDate: string | null;
+  action: ProductAction | undefined;
+  liveState: ProductViewModel["liveState"];
+}): ProductViewModel["riskNarrative"] {
+  if (input.liveState !== "live" || input.currentCashCents === null) {
+    return {
+      title: "Connect live cashflow data to unlock the action plan.",
+      body: "RunwayOps will keep provider actions gated until Aurora-backed cash, invoice, obligation, and customer state is available.",
+      primaryAction: "Connect the live case data source",
+      outcome: "No outbound email or call is shown as executed without persisted provider evidence.",
+      tone: "watch",
+    };
+  }
+
+  const lowPoint = input.forecastLowCents ?? input.currentCashCents;
+  const obligation = input.obligationCents && input.obligationCents > 0 ? formatCurrency(input.obligationCents, input.currency) : "the next obligation";
+  const obligationDate = input.obligationDate ? formatShortDate(input.obligationDate) : "the next due date";
+  const action = input.action;
+  const actionImpact = action ? formatCurrency(action.impactCents, action.currency ?? input.currency) : "the recommended recovery";
+  const tone: StatusTone = lowPoint < 0 ? "risk" : action && action.priority === "High" ? "watch" : "good";
+
+  return {
+    title:
+      lowPoint < 0
+        ? `${input.companyName} is projected to dip below zero before ${obligationDate}.`
+        : `${input.companyName} can protect runway by acting on the highest-impact receivable now.`,
+    body: `Current cash is ${formatCurrency(input.currentCashCents, input.currency)} and the projected low point is ${formatCurrency(lowPoint, input.currency)} while ${obligation} is due around ${obligationDate}. The assistant is prioritising ${action?.customer ?? "the highest-impact customer"} because it has the clearest near-term cash impact.`,
+    primaryAction: action ? action.title : "Review recommended collection action",
+    outcome: action ? `${actionImpact} expected cash impact, approval required before any provider execution.` : "Action preview appears once the live recommendation is loaded.",
+    tone,
+  };
+}
+
 function getForecastLow(data: CompanyCaseState | null, runtime: Cp3ForecastCockpitState | null) {
   if (runtime?.forecast.run?.minimumProjectedCashCents !== null && runtime?.forecast.run?.minimumProjectedCashCents !== undefined) {
     return runtime.forecast.run.minimumProjectedCashCents;
@@ -2328,6 +3002,42 @@ function getForecastLow(data: CompanyCaseState | null, runtime: Cp3ForecastCockp
   }
 
   return 0;
+}
+
+function scenarioTone(key: string, shortfallCents: number): StatusTone {
+  if (shortfallCents > 0 || key === "conservative") {
+    return "risk";
+  }
+
+  if (key === "optimistic") {
+    return "good";
+  }
+
+  return "accent";
+}
+
+function formatScenarioControlValue(value: number | null, unit: "days" | "bps" | "cents") {
+  if (value === null) {
+    return "Live default";
+  }
+
+  if (unit === "days") {
+    return `${value} days`;
+  }
+
+  if (unit === "bps") {
+    return `${Math.round(value / 100)}%`;
+  }
+
+  return formatCurrency(value, "GBP");
+}
+
+function scriptToPreviewBody(script: ProductActionDetail["callScriptPreview"]) {
+  return [
+    script.opener,
+    ...script.talkingPoints.map((point) => `- ${point}`),
+    script.close,
+  ].filter(Boolean).join("\n");
 }
 
 function toneText(tone: StatusTone) {

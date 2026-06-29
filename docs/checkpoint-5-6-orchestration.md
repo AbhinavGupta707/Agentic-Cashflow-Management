@@ -248,7 +248,22 @@ Live checks after integration, when local credentials/session allow:
 
 Base branch: `main`
 
-Base commit: to be recorded immediately before worker launch.
+Base commit: `0fe2350` (`docs: add live product ui orchestration plan`)
 
-Worker lane thread/worktree records will be appended by the master orchestrator
-after Codex creates the isolated sessions.
+Launched by the master orchestrator on 2026-06-29:
+
+| Lane | Thread ID | Worktree |
+| --- | --- | --- |
+| CP5/CP6 UI Shell Lane | `019f1341-b833-7d92-9642-d3b7517e68d9` | `/Users/abhinavgupta/.codex/worktrees/1b8c/Agentic-Cashflow-Management` |
+| CP5/CP6 Overview Scenario API Lane | `019f1342-2e23-7d41-8630-66e7efe59b27` | `/Users/abhinavgupta/.codex/worktrees/0844/Agentic-Cashflow-Management` |
+| CP5/CP6 Actions Agent Runtime Lane | `019f1342-bb75-7572-974d-89cccd55020e` | `/Users/abhinavgupta/.codex/worktrees/e19d/Agentic-Cashflow-Management` |
+| CP5/CP6 Customer Voice Lane | `019f1343-49e6-7272-b851-bb8833144fbf` | `/Users/abhinavgupta/.codex/worktrees/73de/Agentic-Cashflow-Management` |
+| CP5/CP6 QA Docs Smoke Lane | `019f1343-e0d1-7493-a01e-2cbe79ab6c3f` | `/Users/abhinavgupta/.codex/worktrees/0f9e/Agentic-Cashflow-Management` |
+
+Pending worktree IDs used during launch:
+
+- `local:15760a7c-c247-494f-8508-1e2a6ac8e61b`
+- `local:176b9821-f54a-4c8e-9177-fce3e90d9ddc`
+- `local:2b3a4fe2-3091-4d33-adf1-300e3b030fdf`
+- `local:c44b4d72-2b1b-45e6-b7e0-57768d5f65a6`
+- `local:50853f82-e1cb-4018-93ef-a12370b063a4`

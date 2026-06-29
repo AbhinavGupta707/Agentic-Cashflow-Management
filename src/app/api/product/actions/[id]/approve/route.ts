@@ -22,7 +22,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const { id } = await context.params;
 
   try {
-    const body = validateDecisionRequest((await request.json()) as DecisionRequest);
+    const body = validateDecisionRequest(await readOptionalJsonObject(request));
     const result = await approveProductAction(
       {
         actionIdOrExternalId: decodeURIComponent(id),
@@ -40,6 +40,20 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   } catch (error) {
     return productActionErrorResponse(error, "Unable to approve product action.");
   }
+}
+
+async function readOptionalJsonObject(request: Request): Promise<DecisionRequest> {
+  const text = await request.text();
+  if (text.trim().length === 0) {
+    return {};
+  }
+
+  const parsed = JSON.parse(text) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Request body must be a JSON object.");
+  }
+
+  return parsed as DecisionRequest;
 }
 
 function validateDecisionRequest(body: DecisionRequest): DecisionRequest {

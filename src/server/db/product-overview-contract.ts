@@ -67,6 +67,15 @@ export type ProductOverviewAgentStatus = {
   source: ProductDataSource;
 };
 
+export type ProductOverviewNarrative = {
+  riskLevel: "safe" | "watch" | "critical" | "unknown";
+  headline: string;
+  body: string;
+  primaryActionExternalId: string | null;
+  primaryActionLabel: string | null;
+  source: ProductDataSource;
+};
+
 export type ProductOverviewState = {
   company: {
     externalId: string;
@@ -98,6 +107,7 @@ export type ProductOverviewState = {
       nextDueDate: string | null;
     };
   };
+  narrative: ProductOverviewNarrative;
   chart: {
     state: ProductSourceState;
     source: ProductDataSource;

@@ -7,6 +7,7 @@ import type {
   ProductOverviewAction,
   ProductOverviewAgentStatus,
   ProductOverviewChartPoint,
+  ProductOverviewNarrative,
   ProductOverviewState,
 } from "../db/product-overview-contract";
 import { getCp3ForecastCockpitState } from "./cp3-forecast-cockpit";
@@ -64,6 +65,21 @@ export async function getProductOverviewState(
   const chartSeries = cp3State.forecast.points.map(toChartPoint);
   const projectedLow = findProjectedLow(chartSeries);
   const runway = findRunway(chartSeries);
+  const criticalActions = cp3State.actionPlan.recommendedActions.slice(0, 4).map(toOverviewAction);
+  const approvalsNeeded = cp3State.cp4EmailApproval.items
+    .filter((item) => item.approval.state === "pending" || item.approval.required)
+    .slice(0, 6)
+    .map((item) => ({
+      actionExternalId: item.actionExternalId,
+      title: item.title,
+      approvalState: item.approval.state,
+      requestedAt: item.approval.requestedAt,
+      expiresAt: item.approval.expiresAt,
+      customerName: item.customer.name,
+      draftSubject: item.draft?.subject ?? null,
+      blockers: item.sendEligibility.blockers,
+      source: readySource("Approval item was read from Aurora approval and communication draft records."),
+    }));
   const lastUpdatedAt = latestIso([
     company.last_updated_at,
     cp3State.forecast.run?.completedAt,
@@ -133,6 +149,18 @@ export async function getProductOverviewState(
         source: readySource("Upcoming obligations include scheduled and overdue obligations due in the next 30 days."),
       },
     },
+    narrative: buildNarrative({
+      currency: company.base_currency,
+      currentCashCents: company.current_cash_cents,
+      projectedLowCents: projectedLow?.expectedCashCents ?? null,
+      projectedLowDate: projectedLow?.date ?? null,
+      runwayDate: runway?.date ?? null,
+      runwayDays: runway?.daysFromToday ?? null,
+      runwayStatus: runwayStatus(runway?.daysFromToday ?? null, projectedLow?.expectedCashCents ?? null),
+      payrollAmountCents: obligationOverview.payroll_amount_cents,
+      payrollDueDate: obligationOverview.payroll_due_date,
+      primaryAction: criticalActions[0] ?? null,
+    }),
     chart: {
       state: chartSeries.length > 0 ? "ready" : "unavailable",
       source: chartSeries.length > 0
@@ -140,21 +168,8 @@ export async function getProductOverviewState(
         : unavailableSource("aurora", cp3State.forecast.message),
       series: chartSeries,
     },
-    criticalActions: cp3State.actionPlan.recommendedActions.slice(0, 4).map(toOverviewAction),
-    approvalsNeeded: cp3State.cp4EmailApproval.items
-      .filter((item) => item.approval.state === "pending" || item.approval.required)
-      .slice(0, 6)
-      .map((item) => ({
-        actionExternalId: item.actionExternalId,
-        title: item.title,
-        approvalState: item.approval.state,
-        requestedAt: item.approval.requestedAt,
-        expiresAt: item.approval.expiresAt,
-        customerName: item.customer.name,
-        draftSubject: item.draft?.subject ?? null,
-        blockers: item.sendEligibility.blockers,
-        source: readySource("Approval item was read from Aurora approval and communication draft records."),
-      })),
+    criticalActions,
+    approvalsNeeded,
     agentStatuses: buildAgentStatuses(cp3State),
     providerReadiness: {
       source: readySource("Provider readiness reflects environment configuration and latest provider execution records."),
@@ -307,6 +322,56 @@ function buildAgentStatuses(cp3State: Cp3ForecastCockpitState): ProductOverviewA
   }));
 }
 
+function buildNarrative(input: {
+  currency: string;
+  currentCashCents: number;
+  projectedLowCents: number | null;
+  projectedLowDate: string | null;
+  runwayDate: string | null;
+  runwayDays: number | null;
+  runwayStatus: ProductOverviewNarrative["riskLevel"];
+  payrollAmountCents: number | null;
+  payrollDueDate: string | null;
+  primaryAction: ProductOverviewAction | null;
+}): ProductOverviewNarrative {
+  const actionLabel = input.primaryAction?.title ?? null;
+  const actionImpact = input.primaryAction
+    ? formatMoney(input.primaryAction.expectedCashImpactCents, input.currency)
+    : null;
+  const riskPhrase =
+    input.runwayStatus === "critical"
+      ? "Cash needs attention now"
+      : input.runwayStatus === "watch"
+        ? "Cash is on watch"
+        : input.runwayStatus === "safe"
+          ? "Cash is currently stable"
+          : "Cash risk is still being assessed";
+  const lowPointPhrase =
+    input.projectedLowCents !== null && input.projectedLowDate
+      ? `projected low point of ${formatMoney(input.projectedLowCents, input.currency)} on ${input.projectedLowDate}`
+      : "no computed low point yet";
+  const payrollPhrase =
+    input.payrollAmountCents !== null && input.payrollDueDate
+      ? `Payroll of ${formatMoney(input.payrollAmountCents, input.currency)} is due on ${input.payrollDueDate}.`
+      : "No payroll obligation is currently scheduled in the next window.";
+  const actionPhrase =
+    input.primaryAction && actionImpact
+      ? `The top recommended action is "${input.primaryAction.title}", with an expected cash impact of ${actionImpact}.`
+      : "No recommended recovery action is currently available.";
+  const runwayPhrase = input.runwayDate
+    ? `Runway crosses zero on ${input.runwayDate}${input.runwayDays !== null ? ` (${input.runwayDays} days from today)` : ""}.`
+    : "Runway does not cross zero in the current forecast horizon.";
+
+  return {
+    riskLevel: input.runwayStatus,
+    headline: `${riskPhrase}: ${lowPointPhrase}.`,
+    body: `${payrollPhrase} ${runwayPhrase} ${actionPhrase}`,
+    primaryActionExternalId: input.primaryAction?.externalId ?? null,
+    primaryActionLabel: actionLabel,
+    source: readySource("Narrative is deterministically assembled from Aurora cash, forecast, obligation, and action records."),
+  };
+}
+
 function findProjectedLow(series: ProductOverviewChartPoint[]): ProductOverviewChartPoint | null {
   return series.reduce<ProductOverviewChartPoint | null>((lowest, point) => {
     if (!lowest || point.expectedCashCents < lowest.expectedCashCents) {
@@ -389,6 +454,14 @@ function unavailableSource(source: ProductDataSource["source"], message: string)
 
 function formatCaseLabel(caseId: string): string {
   return formatIdentifier(caseId.replace(/^case_/, ""));
+}
+
+function formatMoney(cents: number, currency: string): string {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(cents / 100);
 }
 
 function formatIdentifier(value: string): string {

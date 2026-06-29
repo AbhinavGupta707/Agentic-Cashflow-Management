@@ -79,6 +79,15 @@ export type ProductAgentActivityState = {
     fireworks: ProviderStatus;
     langsmith: ProviderStatus;
   };
+  summary: {
+    runCount: number;
+    checkpointCount: number;
+    eventCount: number;
+    providerExecutionCount: number;
+    auditCount: number;
+    traceCount: number;
+    lastActivityAt: string | null;
+  };
   runs: ProductAgentRun[];
   timeline: ProductActivityItem[];
 };
@@ -155,6 +164,15 @@ export async function getProductAgentActivity(
     providers: {
       fireworks: createFireworksProvider({ env: options.env }).getStatus(),
       langsmith: getLangSmithTracingStatus(options.env),
+    },
+    summary: {
+      runCount: runs.length,
+      checkpointCount: checkpoints.length,
+      eventCount: events.length,
+      providerExecutionCount: providerExecutions.length,
+      auditCount: audits.length,
+      traceCount: runs.filter((run) => Boolean(run.trace_url)).length,
+      lastActivityAt: latestActivityAt(runs, checkpoints, events, providerExecutions, audits),
     },
     runs: normalizedRuns,
     timeline: buildTimeline(runs, checkpoints, events, providerExecutions, audits).slice(0, 60),
@@ -359,6 +377,31 @@ function groupCheckpointsByRun(checkpoints: AgentCheckpointRow[]): Map<string, A
   }
 
   return grouped;
+}
+
+function latestActivityAt(
+  runs: AgentRunRow[],
+  checkpoints: AgentCheckpointRow[],
+  events: EventLedgerRow[],
+  providerExecutions: ProviderExecutionRow[],
+  audits: AuditRow[],
+): string | null {
+  const values = [
+    ...runs.map((run) => run.completed_at ?? run.started_at ?? run.updated_at ?? run.created_at),
+    ...checkpoints.map((checkpoint) => checkpoint.created_at),
+    ...events.map((event) => event.occurred_at),
+    ...providerExecutions.map((execution) => execution.completed_at ?? execution.attempted_at ?? execution.updated_at),
+    ...audits.map((audit) => audit.occurred_at),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value))
+    .filter((value) => Number.isFinite(value.getTime()));
+
+  if (values.length === 0) {
+    return null;
+  }
+
+  return new Date(Math.max(...values.map((value) => value.getTime()))).toISOString();
 }
 
 async function resolveDataApi(options: RepositoryOptions): Promise<AuroraDataApiClient> {

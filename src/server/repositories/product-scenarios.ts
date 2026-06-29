@@ -98,6 +98,15 @@ export async function getProductScenariosState(
     generatedAt: new Date().toISOString(),
     state: "ready",
     source: readyComputedSource("Scenario planner projections were computed from Aurora forecast inputs without persisting speculative runs."),
+    horizon: {
+      startDate: input.horizonStart,
+      endDate: input.horizonEnd,
+      days: diffDays(
+        new Date(`${input.horizonStart}T00:00:00.000Z`),
+        new Date(`${input.horizonEnd}T00:00:00.000Z`),
+      ) + 1,
+      source: readyComputedSource("Scenario horizon comes from the Aurora forecast input window."),
+    },
     controls: buildControls(input),
     projections,
     comparisonCards: projections.map((projection) => toComparisonCard(projection, baseline)),
@@ -186,6 +195,7 @@ function buildProjectionBundle(
         totalInflowCents: forecast.totalExpectedInflowCents,
         totalOutflowCents: forecast.totalExpectedOutflowCents,
         endingCashCents: endingPoint?.expectedCashCents ?? 0,
+        endingCashDate: endingPoint?.date ?? null,
         runwayDays: runwayPoint
           ? diffDays(new Date(`${input.horizonStart}T00:00:00.000Z`), new Date(`${runwayPoint.date}T00:00:00.000Z`))
           : null,

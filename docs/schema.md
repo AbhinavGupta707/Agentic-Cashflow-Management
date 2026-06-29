@@ -145,3 +145,54 @@ It verifies that the existing migration contains:
 Missing Fireworks or LangSmith env must not mutate this schema contract. CP3
 should report provider-unavailable state rather than writing fake provider
 results.
+
+## Checkpoint 4 Approval-Gated Email Contract
+
+Checkpoint 4 reuses the approval and communication primitives for Gmail-backed
+email draft/send execution after human approval.
+
+The offline CP4 contract check is:
+
+```bash
+npm run check:cp4
+```
+
+It verifies that the existing migration contains:
+
+- `approval_records` for pending, approved, rejected, expired, and revoked
+  decisions tied to actions
+- `communication_drafts` for email drafts tied to actions, customers, contacts,
+  providers, and approval/send states
+- `communication_messages` for outbound and inbound email state, provider
+  message IDs, replies, bounces, failures, and idempotent replay
+- `provider_executions` for provider operation attempts, request/response
+  payloads, retry/error state, provider execution IDs, and action/draft/message
+  links
+- `provider_connections` only if a CP4 provider backend migration adds that
+  schema; the absence of the table is reported as pending provider-backend work
+
+The no-key Gmail smoke is:
+
+```bash
+npm run smoke:gmail:no-key
+```
+
+Missing Google/Gmail env or missing OAuth tokens must produce honest provider
+unavailable state without Gmail network calls and without fake Gmail draft IDs,
+message IDs, provider execution IDs, replies, or delivery outcomes.
+
+CP4 Gmail env names are:
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI`
+- `GOOGLE_GMAIL_SCOPES`
+- `GMAIL_ENCRYPTION_KEY`
+- `GMAIL_SENDER_EMAIL`
+- `GMAIL_TEST_RECIPIENT` for live smoke only
+
+Allowed Gmail scopes are `https://www.googleapis.com/auth/gmail.compose` and
+`https://www.googleapis.com/auth/gmail.send`. OAuth access tokens and refresh
+tokens must be encrypted at rest by the provider connection design and must not
+be stored in plaintext env, Git, logs, provider execution payloads, or
+browser-visible API responses.

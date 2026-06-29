@@ -5,7 +5,19 @@ import { createGmailAuthorizationUrl } from "../src/server/providers/gmail-oauth
 import { getGmailProviderStatus } from "../src/server/providers/gmail";
 import { decryptGmailToken, encryptGmailToken } from "../src/server/providers/gmail-tokens";
 
+const tokenEnvNamePattern = /^(GMAIL|GOOGLE).*(_ACCESS_TOKEN|_REFRESH_TOKEN|_OAUTH_TOKEN|_TOKEN)$/i;
+
 async function main() {
+  const tokenLikeEnvNames = Object.keys(process.env)
+    .filter((key) => tokenEnvNamePattern.test(key))
+    .sort();
+
+  assert(
+    tokenLikeEnvNames.length === 0,
+    `Plaintext Gmail/Google OAuth token env names detected: ${tokenLikeEnvNames.join(", ")}`,
+  );
+  console.log("ok no plaintext Gmail/Google OAuth token env names detected.");
+
   const noKeyEnv: NodeJS.ProcessEnv = {
     ...process.env,
     GOOGLE_CLIENT_ID: "",
@@ -77,6 +89,10 @@ async function main() {
   console.log("ok Gmail token helper encrypts without plaintext token leakage.");
 
   console.log("Gmail no-key/config smoke passed without Gmail network calls.");
+  console.log("No fake Gmail draft id, message id, provider execution id, reply, or delivery outcome was produced.");
+  console.log(
+    "Approved live smoke remains opt-in: create exactly one draft or send exactly one approved test message only after explicit credentials and recipient are configured.",
+  );
 }
 
 function assert(condition: unknown, message: string): asserts condition {

@@ -19,6 +19,7 @@
     "db:seed:dry-run": "tsx scripts/seed-demo-data.ts --dry-run",
     "check:cp2": "tsx scripts/check-cp2-contract.ts",
     "check:cp3": "tsx scripts/check-cp3-contract.ts",
+    "check:cp4": "tsx scripts/check-cp4-contract.ts",
     "check:cp3-forecast": "tsx scripts/run-forecast-smoke.ts --dry-run",
     "agent:smoke": "tsx scripts/run-agent-smoke.ts --replay",
     "forecast:dry": "tsx scripts/run-forecast-smoke.ts --dry-run",

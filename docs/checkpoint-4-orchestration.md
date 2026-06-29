@@ -104,6 +104,29 @@ Base commit: `3c70dd3`
 | Cockpit Email Approval UX | `019f12c0-262c-76f0-86f0-2fa82634a6db` | `/Users/abhinavgupta/.codex/worktrees/e37e/Agentic-Cashflow-Management` |
 | QA Docs And Smoke | `019f12c0-83e8-76e1-9876-277b49aa8b0a` | `/Users/abhinavgupta/.codex/worktrees/6a0e/Agentic-Cashflow-Management` |
 
+## QA Docs And Smoke Lane Contract
+
+The QA/docs lane provides:
+
+- `npm run check:cp4` for offline approval/communication/provider execution
+  schema checks
+- `npm run smoke:gmail:no-key` for deterministic Gmail provider no-key posture
+- `npm run smoke:cp4:runtime:no-key` for deterministic approval-gate and
+  provider-unavailable runtime behavior
+- `docs/checkpoint-4-status.md` for runbook, browser smoke, live Gmail smoke,
+  guardrails, and CP5 handoff
+
+These checks must remain offline and deterministic. They may inspect local env
+and migration files, but they must not call Aurora, Google OAuth, or Gmail.
+Missing Google/Gmail env and missing OAuth tokens are expected no-key states.
+Plaintext token-like env names should fail the no-key smoke.
+
+CP4 live Gmail smoke is opt-in after credentials are configured. It may create
+exactly one Gmail draft or send exactly one approved test message to the
+explicit test recipient. Do not run a live send without approval, and do not
+write fake Gmail draft/message/provider IDs when credentials or tokens are
+missing.
+
 ## Acceptance Checklist
 
 Run after CP4 lanes are integrated:

@@ -21,12 +21,14 @@
     "check:cp3-forecast": "tsx scripts/run-forecast-smoke.ts --dry-run",
     "forecast:dry": "tsx scripts/run-forecast-smoke.ts --dry-run",
     "forecast:smoke": "tsx scripts/run-forecast-smoke.ts --replay",
+    "smoke:agent:no-key": "tsx scripts/smoke-agent-providers-no-key.ts",
     "smoke:data-api": "tsx scripts/check-data-api.ts",
     "smoke": "tsx scripts/smoke-current-case.ts"
   },
   "dependencies": {
     "@aws-sdk/client-rds-data": "^3.0.0",
     "@aws-sdk/client-s3": "^3.1075.0",
+    "@langchain/langgraph": "^1.4.7",
     "clsx": "^2.1.1",
     "dotenv": "^17.4.2",
     "lucide-react": "^0.468.0",

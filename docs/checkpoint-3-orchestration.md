@@ -48,6 +48,7 @@ Required for deterministic CP3 verification:
 Optional after the user adds keys:
 
 - `FIREWORKS_API_KEY`
+- `FIREWORKS_BASE_URL`
 - `FIREWORKS_MODEL`
 - `LANGSMITH_API_KEY`
 - `LANGSMITH_PROJECT`
@@ -56,6 +57,17 @@ Optional after the user adds keys:
 Missing optional provider keys must not block deterministic forecast/action
 generation. Provider adapters should report `unavailable` and avoid fake
 network calls.
+
+Provider smoke added for the agent/provider lane:
+
+```bash
+npm run smoke:agent:no-key
+```
+
+The no-key smoke strips Fireworks and LangSmith keys in-process, runs the
+cashflow graph without Aurora persistence against deterministic demo data, and
+expects Fireworks/LangSmith `unavailable` provider states plus deterministic
+draft fallback output.
 
 ## Lane Split
 

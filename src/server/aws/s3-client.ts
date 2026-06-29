@@ -1,4 +1,6 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { Buffer } from "node:buffer";
+
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 import { type S3Config, requireS3Config } from "./s3-env";
 
@@ -8,6 +10,10 @@ export type PutSourceObjectInput = {
   contentType: string;
   checksumSha256Base64: string;
   metadata: Record<string, string>;
+};
+
+export type GetSourceObjectTextInput = {
+  key: string;
 };
 
 export class SourceObjectStorageClient {
@@ -40,8 +46,51 @@ export class SourceObjectStorageClient {
       }),
     );
   }
+
+  async getSourceObjectText(input: GetSourceObjectTextInput): Promise<string> {
+    const response = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.config.bucket,
+        Key: input.key,
+      }),
+    );
+
+    return bodyToUtf8Text(response.Body);
+  }
 }
 
 export function createSourceObjectStorageClient(config?: S3Config): SourceObjectStorageClient {
   return new SourceObjectStorageClient(config);
+}
+
+async function bodyToUtf8Text(body: unknown): Promise<string> {
+  if (!body) {
+    return "";
+  }
+
+  if (typeof body === "string") {
+    return body;
+  }
+
+  if (body instanceof Uint8Array) {
+    return Buffer.from(body).toString("utf8");
+  }
+
+  const transformable = body as { transformToString?: (encoding?: string) => Promise<string> };
+  if (typeof transformable.transformToString === "function") {
+    return transformable.transformToString("utf-8");
+  }
+
+  const asyncIterable = body as AsyncIterable<Uint8Array | string>;
+  if (typeof asyncIterable[Symbol.asyncIterator] === "function") {
+    const chunks: Buffer[] = [];
+
+    for await (const chunk of asyncIterable) {
+      chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk));
+    }
+
+    return Buffer.concat(chunks).toString("utf8");
+  }
+
+  throw new Error("S3 response body could not be read as UTF-8 text.");
 }

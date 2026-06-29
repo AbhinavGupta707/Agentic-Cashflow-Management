@@ -9,6 +9,10 @@ import {
 } from "./normalize";
 import { type AuroraDataApiClient, createAuroraDataApiClient } from "../aws/rds-data-api";
 import {
+  createSourceObjectStorageClient,
+  type SourceObjectStorageClient,
+} from "../aws/s3-client";
+import {
   claimEventInboxEvents,
   decimalParam,
   jsonParam,
@@ -22,6 +26,7 @@ const DEFAULT_MAX_ATTEMPTS = 5;
 
 export type ProcessEventInboxOptions = {
   dataApi?: AuroraDataApiClient;
+  sourceObjectStorage?: SourceObjectStorageClient;
   limit?: number;
   workerId?: string;
   eventId?: string;
@@ -95,8 +100,10 @@ export async function processEventInbox(
 
   for (const event of events) {
     try {
+      const payload = requirePayload(event.payload);
+      const rows = isPdfPayload(payload) ? [] : await rowsFromPayload(payload, options.sourceObjectStorage);
       const result = await dataApi.transaction((transactionId) =>
-        processClaimedEvent(dataApi, transactionId, event),
+        processClaimedEvent(dataApi, transactionId, event, payload, rows),
       );
       summary.processed += 1;
       summary.rowsSucceeded += result.rowsSucceeded;
@@ -138,9 +145,9 @@ async function processClaimedEvent(
   dataApi: AuroraDataApiClient,
   transactionId: string,
   event: EventInboxEvent,
+  payload: IngestionPayload,
+  rows: Array<Record<string, unknown>>,
 ): Promise<{ rowsSucceeded: number; rowsFailed: number; message: string }> {
-  const payload = requirePayload(event.payload);
-
   if (isPdfPayload(payload)) {
     await recordPdfStoredForReview(dataApi, transactionId, event, payload);
     await markEventInboxProcessed(dataApi, transactionId, event.id);
@@ -151,7 +158,6 @@ async function processClaimedEvent(
     };
   }
 
-  const rows = rowsFromPayload(payload);
   const importKind = importKindFromInput(String(payload.importKind ?? payload.kind ?? event.event_type));
   const context = await resolveImportContext(dataApi, transactionId, event, payload, importKind);
 
@@ -1061,7 +1067,10 @@ async function companyIdFromSourceFile(
   return row?.company_id ?? null;
 }
 
-function rowsFromPayload(payload: IngestionPayload): Array<Record<string, unknown>> {
+async function rowsFromPayload(
+  payload: IngestionPayload,
+  sourceObjectStorage?: SourceObjectStorageClient,
+): Promise<Array<Record<string, unknown>>> {
   if (payload.payload && typeof payload.payload === "object" && !Array.isArray(payload.payload)) {
     return [payload.payload];
   }
@@ -1074,8 +1083,14 @@ function rowsFromPayload(payload: IngestionPayload): Array<Record<string, unknow
     return parseCsv(payload.csvText).rows;
   }
 
+  if (payload.objectKey && payload.objectKey.trim().length > 0) {
+    const storage = sourceObjectStorage ?? createSourceObjectStorageClient();
+    const csvText = await storage.getSourceObjectText({ key: payload.objectKey });
+    return parseCsv(csvText).rows;
+  }
+
   throw new Error(
-    "CSV event payload must include csvText or rows. S3 object keys are recorded as provenance but are not read by this lane.",
+    "CSV event payload must include csvText, rows, or an S3 objectKey that can be read by the processor.",
   );
 }
 

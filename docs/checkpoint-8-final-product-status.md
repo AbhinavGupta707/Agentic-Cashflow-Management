@@ -2,8 +2,34 @@
 
 Date: 2026-06-29
 
-Status: Planned. Awaiting explicit user approval to launch implementation
-worker lanes.
+Status: Launched. Worker lanes are active or pending completion. Do not claim
+checkpoint completion until all lanes merge, master integration passes, and
+final browser/deployment evidence is recorded.
+
+## Launch Registry
+
+Launch approved by the user on 2026-06-29 with:
+
+```text
+Launch Checkpoint 8 final product execution with the three planned worker lanes.
+```
+
+Base commit:
+
+```text
+b14b0ee docs: tighten checkpoint 8 demo script
+```
+
+Planned worker lanes:
+
+| Lane | Thread/worktree | Ownership | Status |
+| --- | --- | --- | --- |
+| Live Intake, Event Loop, And Agent Graph | Pending master registry update | Upload/sample pack, event loop, forecast/action refresh, Fireworks extraction, LangGraph evidence | Launched by master |
+| Execution, Memory, And Product UI Polish | Pending master registry update | Twilio test-call execution, provider readiness, outcome memory, product UI polish | Launched by master |
+| QA, Submission Package, And Demo Evidence | `/Users/abhinavgupta/.codex/worktrees/1c0f/Agentic-Cashflow-Management` | `check:cp8`, architecture diagram, submission package, final QA checklist, evidence templates | In progress |
+
+Master must fill thread IDs and final worktree paths after all worktree
+creation completes.
 
 ## Why This Checkpoint Exists
 
@@ -100,6 +126,8 @@ Checkpoint 8 is complete only when:
 - demo state is reset after any live mutation
 - submission docs/assets are ready
 - worker lanes are archived
+- `CP8_REQUIRE_FINAL_PRODUCT=true npm run check:cp8` passes after the runtime
+  lanes land
 
 ## Final Evidence Template
 
@@ -108,6 +136,7 @@ Fill this in after execution:
 ```text
 Integrated commit:
 Merged lane commits:
+Worker lanes archived:
 Production URL:
 Production deployment ID:
 Commands passed:
@@ -124,9 +153,20 @@ Twilio live/gated evidence:
 Outcome memory evidence:
 Architecture diagram path:
 AWS proof screenshot path:
+Vercel project link:
+Vercel Team ID:
 Public content link:
 Demo video link:
 Known gated flows:
 Residual risks:
 ```
 
+## Submission Assets
+
+Current repo-native assets:
+
+- `docs/h0-architecture-diagram.md`
+- `docs/h0-final-submission-package.md`
+- `docs/checkpoint-8-final-qa-checklist.md`
+- `docs/h0-blue-sky-demo-script.md`
+- `docs/h0-final-submission-readiness-plan.md`

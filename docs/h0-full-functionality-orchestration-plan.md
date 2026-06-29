@@ -103,6 +103,10 @@ For checkpoint 2 and later:
    ```
 
 7. Leave worker threads unpinned.
+8. Do not create recurring Codex automations or extra "orchestrator" sessions
+   for polling. This master thread owns status checks, merges, verification, and
+   cleanup; worker sessions exist only for concrete task lanes and should be
+   archived after verified merge.
 
 Route verification completed on 2026-06-29:
 

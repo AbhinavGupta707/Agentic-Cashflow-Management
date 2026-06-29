@@ -44,7 +44,7 @@ export class TwilioProvider {
   }
 
   getStatus(now: Date = new Date()): ProviderStatus {
-    const missing = requiredEnvKeys.filter((key) => !present(this.env[key]));
+    const missing = missingEnvKeys(this.env);
 
     if (missing.length > 0) {
       return {
@@ -71,12 +71,14 @@ export class TwilioProvider {
       };
     }
 
-    if (!E164_PATTERN.test(this.env.TWILIO_FROM_NUMBER!.trim())) {
+    const fromNumber = configuredFromNumber(this.env);
+    if (!fromNumber || !E164_PATTERN.test(fromNumber)) {
       return {
         provider: "twilio",
         status: "unavailable",
         reason: "invalid-config",
-        message: "TWILIO_FROM_NUMBER must be an E.164 phone number owned or verified in the Twilio account.",
+        message:
+          "TWILIO_FROM_NUMBER or TWILIO_PHONE_NUMBER must be an E.164 phone number owned or verified in the Twilio account.",
         missingEnv: [],
         checkedAt: now.toISOString(),
         metadata: statusMetadata(this.env),
@@ -110,7 +112,7 @@ export class TwilioProvider {
     try {
       const body = new URLSearchParams();
       body.set("To", input.to);
-      body.set("From", input.from ?? this.env.TWILIO_FROM_NUMBER!);
+      body.set("From", input.from ?? configuredFromNumber(this.env)!);
       body.set("Url", input.twimlUrl ?? this.env.TWILIO_TWIML_URL!);
       body.set("Method", "POST");
 
@@ -180,26 +182,38 @@ export function isValidE164PhoneNumber(value: string | null | undefined): value 
   return typeof value === "string" && E164_PATTERN.test(value.trim());
 }
 
-const requiredEnvKeys = [
-  "TWILIO_ACCOUNT_SID",
-  "TWILIO_AUTH_TOKEN",
-  "TWILIO_FROM_NUMBER",
-  "TWILIO_TWIML_URL",
-] as const;
+function missingEnvKeys(env: TwilioEnv): string[] {
+  const missing = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_TWIML_URL"].filter(
+    (key) => !present(env[key]),
+  );
+
+  if (!configuredFromNumber(env)) {
+    missing.push("TWILIO_FROM_NUMBER", "TWILIO_PHONE_NUMBER");
+  }
+
+  return missing;
+}
 
 function apiBaseUrl(env: TwilioEnv): string {
   return env.TWILIO_API_BASE_URL?.trim().replace(/\/+$/, "") || DEFAULT_TWILIO_API_BASE_URL;
 }
 
 function statusMetadata(env: TwilioEnv): ProviderStatus["metadata"] {
+  const fromNumber = configuredFromNumber(env);
+
   return {
     accountSidConfigured: present(env.TWILIO_ACCOUNT_SID),
-    fromNumberConfigured: present(env.TWILIO_FROM_NUMBER),
+    fromNumberConfigured: Boolean(fromNumber),
+    fromNumberEnv: present(env.TWILIO_FROM_NUMBER) ? "TWILIO_FROM_NUMBER" : present(env.TWILIO_PHONE_NUMBER) ? "TWILIO_PHONE_NUMBER" : null,
     twimlUrlConfigured: present(env.TWILIO_TWIML_URL),
     statusCallbackConfigured: present(env.TWILIO_STATUS_CALLBACK_URL),
     testTargetConfigured: present(env.TWILIO_TEST_TO_NUMBER),
     apiBaseUrl: apiBaseUrl(env),
   };
+}
+
+function configuredFromNumber(env: TwilioEnv): string | null {
+  return env.TWILIO_FROM_NUMBER?.trim() || env.TWILIO_PHONE_NUMBER?.trim() || null;
 }
 
 function present(value: string | undefined): value is string {

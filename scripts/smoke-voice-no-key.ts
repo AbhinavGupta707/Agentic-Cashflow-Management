@@ -10,6 +10,7 @@ async function main() {
     TWILIO_ACCOUNT_SID: "",
     TWILIO_AUTH_TOKEN: "",
     TWILIO_FROM_NUMBER: "",
+    TWILIO_PHONE_NUMBER: "",
     TWILIO_TWIML_URL: "",
     TWILIO_STATUS_CALLBACK_URL: "",
     TWILIO_TEST_TO_NUMBER: "",

@@ -9,7 +9,7 @@ import {
   type SqlParameter,
 } from "@aws-sdk/client-rds-data";
 
-import { type DataApiConfig, requireDataApiConfig } from "./data-api-env";
+import { DataApiUnavailableError, type DataApiConfig, requireDataApiConfig } from "./data-api-env";
 
 export type DataApiScalar = string | number | boolean | Date | null;
 
@@ -154,6 +154,13 @@ export class AuroraDataApiClient {
         return await operation();
       } catch (error) {
         lastError = error;
+
+        if (isAwsCredentialUnavailableException(error)) {
+          throw new DataApiUnavailableError(
+            [],
+            "Aurora Data API is unavailable because the local AWS session has expired. Reauthenticate before running live database operations.",
+          );
+        }
 
         if (!isDatabaseResumingException(error) || attempt === RESUME_RETRY_DELAYS_MS.length) {
           throw error;
@@ -311,6 +318,23 @@ function isDatabaseResumingException(error: unknown): boolean {
     named.name === "DatabaseResumingException" ||
     named.Code === "DatabaseResumingException" ||
     named.code === "DatabaseResumingException"
+  );
+}
+
+function isAwsCredentialUnavailableException(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const named = error as { name?: string; Code?: string; code?: string; message?: string };
+  const name = named.name ?? named.Code ?? named.code ?? "";
+  const message = named.message ?? "";
+
+  return (
+    name === "ExpiredTokenException" ||
+    name === "ExpiredToken" ||
+    name === "CredentialsProviderError" ||
+    /session has expired|reauthenticate|expired token|security token.*expired|could not load credentials/i.test(message)
   );
 }
 

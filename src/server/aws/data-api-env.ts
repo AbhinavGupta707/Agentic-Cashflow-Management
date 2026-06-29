@@ -30,11 +30,12 @@ export type DataApiAvailability =
 export class DataApiUnavailableError extends Error {
   readonly missing: DataApiEnvKey[];
 
-  constructor(missing: DataApiEnvKey[]) {
+  constructor(missing: DataApiEnvKey[], message?: string) {
     super(
-      `Aurora Data API is unavailable because required environment variables are missing: ${missing.join(
-        ", ",
-      )}`,
+      message ??
+        `Aurora Data API is unavailable because required environment variables are missing: ${missing.join(
+          ", ",
+        )}`,
     );
     this.name = "DataApiUnavailableError";
     this.missing = missing;

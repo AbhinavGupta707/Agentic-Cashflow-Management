@@ -76,6 +76,17 @@ Do not create recurring Codex automations. Do not create orchestration or review
 threads. These four task-lane worktree sessions are the only CP4 worker sessions
 for this checkpoint.
 
+## Launched Worker Sessions
+
+Base commit: `3c70dd3`
+
+| Lane | Thread | Worktree |
+| --- | --- | --- |
+| Gmail OAuth And Provider Backend | `019f12bf-7dbd-7c91-8e3c-0fea8b173bec` | `/Users/abhinavgupta/.codex/worktrees/b962/Agentic-Cashflow-Management` |
+| Approval And Communication Runtime | `019f12bf-d7a3-70b3-ae6e-d0dcacf16ba5` | `/Users/abhinavgupta/.codex/worktrees/1e01/Agentic-Cashflow-Management` |
+| Cockpit Email Approval UX | `019f12c0-262c-76f0-86f0-2fa82634a6db` | `/Users/abhinavgupta/.codex/worktrees/e37e/Agentic-Cashflow-Management` |
+| QA Docs And Smoke | `019f12c0-83e8-76e1-9876-277b49aa8b0a` | `/Users/abhinavgupta/.codex/worktrees/6a0e/Agentic-Cashflow-Management` |
+
 ## Acceptance Checklist
 
 Run after CP4 lanes are integrated:

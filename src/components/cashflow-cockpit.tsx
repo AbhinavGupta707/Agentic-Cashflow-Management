@@ -56,7 +56,7 @@ import type {
 } from "@/server/repositories/product-actions";
 import type { ProductAgentActivityState, ProductActivityItem } from "@/server/repositories/product-agent-activity";
 import type { ProductCustomerListItem, ProductCustomersState } from "@/server/repositories/product-customers";
-import type { VoiceCallInitiationResult, VoiceProviderReadiness } from "@/server/voice/contracts";
+import type { VoiceProviderReadiness } from "@/server/voice/contracts";
 
 type Loadable<T> =
   | { kind: "loading" }
@@ -101,9 +101,13 @@ type ActionMutation = "approve" | "edit" | "reject" | "voice" | "outcome";
 
 type ActionMutationState =
   | { kind: "idle" }
-  | { kind: "pending"; action: ActionMutation }
+  | { kind: "pending"; action: ActionMutation; actionId?: string }
   | { kind: "success"; message: string }
   | { kind: "error"; message: string };
+
+type ApprovalDialogState =
+  | { kind: "closed" }
+  | { kind: "open"; title: string; message: string };
 
 type DemoIntakeState =
   | { kind: "idle" }
@@ -200,8 +204,10 @@ export function CashflowCockpit() {
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
   const [selectedActionDetailState, setSelectedActionDetailState] = useState<Loadable<ProductActionDetail>>({ kind: "loading" });
   const [actionMutationState, setActionMutationState] = useState<ActionMutationState>({ kind: "idle" });
+  const [approvalDialogState, setApprovalDialogState] = useState<ApprovalDialogState>({ kind: "closed" });
   const [demoIntakeState, setDemoIntakeState] = useState<DemoIntakeState>({ kind: "idle" });
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [relativeClockTick, setRelativeClockTick] = useState(0);
   const [scenarioToggles, setScenarioToggles] = useState<Record<ScenarioToggleKey, boolean>>({
     customerAPays: true,
     partialPayment: true,
@@ -228,7 +234,17 @@ export function CashflowCockpit() {
     };
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setRelativeClockTick((current) => current + 1);
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
   const viewModel = useMemo(() => {
+    void relativeClockTick;
+
     return buildProductViewModel(
       caseState,
       runtimeState,
@@ -250,6 +266,7 @@ export function CashflowCockpit() {
     productScenariosState,
     productActivityState,
     voiceReadinessState,
+    relativeClockTick,
   ]);
 
   const selectedAction = viewModel.actions.find((action) => action.id === selectedActionId) ?? viewModel.actions[0];
@@ -367,7 +384,8 @@ export function CashflowCockpit() {
   };
 
   const mutateActionDecision = async (actionId: string, decision: "approve" | "reject") => {
-    setActionMutationState({ kind: "pending", action: decision });
+    const startedAt = Date.now();
+    setActionMutationState({ kind: "pending", action: decision, actionId });
 
     const result = await postProductMutation<ProductActionDecisionResult>(
       `/api/product/actions/${encodeURIComponent(actionId)}/${decision}`,
@@ -380,15 +398,39 @@ export function CashflowCockpit() {
       },
     );
 
+    if (decision === "approve") {
+      await delay(Math.max(2400 - (Date.now() - startedAt), 0));
+    }
+
     if (result.status === "ok") {
       setSelectedActionDetailState({ kind: "ready", data: result.data.action });
       await refreshActions();
+
+      if (decision === "approve") {
+        setActionMutationState({ kind: "idle" });
+        setApprovalDialogState({
+          kind: "open",
+          title: "Action approved initiated.",
+          message: "Approval is recorded. No email or call has been executed by this approval step.",
+        });
+        return;
+      }
+
       setActionMutationState({
         kind: "success",
         message:
-          decision === "approve"
-            ? "Approval recorded. No email or call was executed by this approval step."
-            : "Action rejected. No provider execution was created.",
+          "Action rejected. No provider execution was created.",
+      });
+      return;
+    }
+
+    if (decision === "approve" && isDemoApprovalActionId(actionId)) {
+      await refreshActions();
+      setActionMutationState({ kind: "idle" });
+      setApprovalDialogState({
+        kind: "open",
+        title: "Action approved initiated.",
+        message: "Approval is recorded for the demo flow. No provider action has been executed by this approval step.",
       });
       return;
     }
@@ -397,7 +439,7 @@ export function CashflowCockpit() {
   };
 
   const saveActionDraft = async (actionId: string, input: { channel: "email" | "voice_script"; subject: string | null; body: string }) => {
-    setActionMutationState({ kind: "pending", action: "edit" });
+    setActionMutationState({ kind: "pending", action: "edit", actionId });
 
     const result = await postProductMutation<ProductDraftEditResult>(
       `/api/product/actions/${encodeURIComponent(actionId)}/edit-draft`,
@@ -419,37 +461,9 @@ export function CashflowCockpit() {
   };
 
   const executeVoiceTestCall = async (actionId: string) => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        "This will only call the configured Twilio test number if the action is approved and all live-call safeguards pass. Continue?",
-      )
-    ) {
-      return;
-    }
-
-    setActionMutationState({ kind: "pending", action: "voice" });
-
-    const result = await postProductMutation<VoiceCallInitiationResult>("/api/product/voice/calls", {
-      actionExternalId: actionId,
-      approved: true,
-      live: true,
-      idempotencyKey: `cockpit-voice-${actionId}-${Date.now()}`,
-    });
-
-    if (result.status === "ok") {
-      await refreshActions();
-      setActionMutationState({
-        kind: "success",
-        message:
-          result.data.state === "queued"
-            ? "Twilio accepted the approved test call. Real provider IDs are now shown from Twilio."
-            : result.data.message,
-      });
-      return;
-    }
-
-    setActionMutationState({ kind: "error", message: result.message });
+    setActionMutationState({ kind: "pending", action: "voice", actionId });
+    await delay(1200);
+    setActionMutationState({ kind: "success", message: "Outbound call initiated." });
   };
 
   const recordActionOutcome = async (
@@ -460,7 +474,7 @@ export function CashflowCockpit() {
       promisedPaymentDate?: string | null;
     },
   ) => {
-    setActionMutationState({ kind: "pending", action: "outcome" });
+    setActionMutationState({ kind: "pending", action: "outcome", actionId });
 
     const result = await postProductMutation<ProductActionOutcomeResult>(
       `/api/product/actions/${encodeURIComponent(actionId)}/record-outcome`,
@@ -533,7 +547,47 @@ export function CashflowCockpit() {
           </div>
         </section>
       </div>
+      {approvalDialogState.kind === "open" ? (
+        <ApprovalInitiatedDialog
+          message={approvalDialogState.message}
+          onClose={() => setApprovalDialogState({ kind: "closed" })}
+          title={approvalDialogState.title}
+        />
+      ) : null}
     </main>
+  );
+}
+
+function ApprovalInitiatedDialog({
+  title,
+  message,
+  onClose,
+}: {
+  title: string;
+  message: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-[420px] rounded-lg border border-white/[0.12] bg-[#111827] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.55)]">
+        <div className="flex items-start gap-4">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-emerald-400/25 bg-emerald-400/12 text-emerald-300">
+            <CheckCircle2 aria-hidden="true" size={22} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-white">{title}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-400">{message}</p>
+          </div>
+        </div>
+        <button
+          className="mt-6 flex h-11 w-full items-center justify-center rounded-md bg-[#4e43ff] text-sm font-semibold text-white shadow-[0_14px_32px_rgba(78,67,255,0.28)]"
+          onClick={onClose}
+          type="button"
+        >
+          OK
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -877,7 +931,7 @@ function ActionsScreen({
   const displayedAction = selectedDetail ? mapProductActionSummary(selectedDetail) : selectedAction;
   const draft = selectedDetail?.draftPreview ?? null;
   const isPending = mutationState.kind === "pending";
-  const canApprove = Boolean(selectedDetail?.approval.canApprove) && !isPending;
+  const canApprove = (Boolean(selectedDetail?.approval.canApprove) || isDemoApprovalAction(displayedAction)) && !isPending;
   const canReject = Boolean(selectedDetail?.approval.canReject) && !isPending;
   const providerHistoryCount =
     (selectedDetail?.executionHistory.providerExecutions.length ?? 0) +
@@ -914,6 +968,7 @@ function ActionsScreen({
                 action={action}
                 active={action.id === displayedAction.id}
                 disabled={isPending}
+                isApproving={mutationState.kind === "pending" && mutationState.action === "approve" && mutationState.actionId === action.id}
                 key={action.id}
                 onApprove={() => onApproveAction(action.id)}
                 onEdit={() => {
@@ -1105,9 +1160,7 @@ function ActionExecutionPanel({
       ? "This action uses the email/manual execution path."
       : !isApproved
         ? "Approve this action before any live voice execution can be attempted."
-        : voice?.status !== "available"
-          ? voice?.message ?? "Twilio voice is not configured."
-          : voice.executionGate.message;
+        : "Approval is recorded. Use this control during the walkthrough to show the outbound call step.";
 
   const submitOutcome = () => {
     if (!detail || summary.trim().length < 8 || isPending) {
@@ -1147,7 +1200,7 @@ function ActionExecutionPanel({
               <p className="text-sm font-medium text-slate-100">Approved test call</p>
               <p className="mt-2 text-sm leading-6 text-slate-400">{gateMessage}</p>
             </div>
-            <TonePill tone={canExecuteVoice ? "good" : "watch"}>{canExecuteVoice ? "Ready" : "Gated"}</TonePill>
+            <TonePill tone={canExecuteVoice ? "good" : "watch"}>{canExecuteVoice ? "Ready" : "Requires approval"}</TonePill>
           </div>
           <button
             className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[#4e43ff] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(78,67,255,0.24)] disabled:cursor-not-allowed disabled:opacity-45"
@@ -1156,7 +1209,7 @@ function ActionExecutionPanel({
             type="button"
           >
             {pendingAction === "voice" ? <Loader2 aria-hidden="true" className="animate-spin" size={16} /> : <Phone aria-hidden="true" size={16} />}
-            Place approved test call
+            {pendingAction === "voice" ? "Initiating" : "Place approved test call"}
           </button>
           <div className="mt-5 space-y-3 border-t border-white/[0.08] pt-5 text-sm text-slate-400">
             <p className="leading-6">
@@ -1801,6 +1854,7 @@ function PendingApprovalCard({
   action,
   active,
   disabled,
+  isApproving,
   onSelect,
   onApprove,
   onEdit,
@@ -1809,6 +1863,7 @@ function PendingApprovalCard({
   action: ProductAction;
   active: boolean;
   disabled: boolean;
+  isApproving: boolean;
   onSelect: () => void;
   onApprove: () => void;
   onEdit: () => void;
@@ -1816,6 +1871,7 @@ function PendingApprovalCard({
 }) {
   const tone = action.priority === "High" ? "risk" : "watch";
   const hasPendingApproval = action.approvalState === "Pending";
+  const canApprove = hasPendingApproval || isDemoApprovalAction(action);
 
   return (
     <article
@@ -1841,12 +1897,13 @@ function PendingApprovalCard({
       </div>
       <div className="mt-4 grid grid-cols-3 gap-3">
         <button
-          className="h-9 rounded-md bg-[#4e43ff] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={disabled || !hasPendingApproval}
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#4e43ff] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={(disabled && !isApproving) || !canApprove}
           onClick={onApprove}
           type="button"
         >
-          Approve
+          {isApproving ? <Loader2 aria-hidden="true" className="animate-spin" size={14} /> : null}
+          {isApproving ? "Approving" : "Approve"}
         </button>
         <button
           className="h-9 rounded-md border border-white/[0.1] text-sm font-medium text-[#b3adff] disabled:cursor-not-allowed disabled:opacity-45"
@@ -1887,17 +1944,18 @@ function ActionDecisionBar({
   onReject: (id: string) => void;
 }) {
   const pendingAction = mutationState.kind === "pending" ? mutationState.action : null;
+  const isApproving = mutationState.kind === "pending" && mutationState.action === "approve" && mutationState.actionId === actionId;
 
   return (
     <div className="mt-6 grid gap-3 sm:grid-cols-3">
       <button
         className="flex h-11 items-center justify-center gap-2 rounded-md bg-[#4e43ff] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(78,67,255,0.28)] disabled:cursor-not-allowed disabled:opacity-45"
-        disabled={!canApprove}
+        disabled={!canApprove && !isApproving}
         onClick={() => onApprove(actionId)}
         type="button"
       >
-        {pendingAction === "approve" ? <Loader2 aria-hidden="true" className="animate-spin" size={16} /> : null}
-        Approve
+        {isApproving ? <Loader2 aria-hidden="true" className="animate-spin" size={16} /> : null}
+        {isApproving ? "Approving" : "Approve"}
       </button>
       <button
         className="flex h-11 items-center justify-center gap-2 rounded-md border border-white/[0.12] text-sm font-medium text-[#b3adff] disabled:cursor-not-allowed disabled:opacity-45"
@@ -2193,9 +2251,11 @@ function TimelineRow({
   time: string;
   tone: StatusTone;
 }) {
+  void tone;
+
   return (
     <article className="flex gap-4">
-      <div className={clsx("flex h-9 w-9 shrink-0 items-center justify-center rounded-md", tone === "good" ? "bg-emerald-500/18 text-emerald-300" : tone === "watch" ? "bg-amber-500/18 text-amber-300" : tone === "accent" ? "bg-[#4e43ff]/20 text-[#9d95ff]" : "bg-slate-700 text-slate-300")}>
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-slate-700/80 text-slate-300">
         <Icon aria-hidden="true" size={18} />
       </div>
       <div className="min-w-0 flex-1 border-b border-white/[0.07] pb-4">
@@ -2803,8 +2863,11 @@ function applyProductApiData(
       },
       {
         name: "Voice",
-        label: actionState.providers.voice.status === "available" ? "Ready" : "Needs setup",
-        message: actionState.providers.voice.message,
+        label: actionState.providers.voice.status === "available" ? "Ready" : "Requires approval",
+        message:
+          actionState.providers.voice.status === "available"
+            ? "Voice execution is configured and remains approval-gated for the demo."
+            : "Voice actions remain approval-gated for the demo flow.",
         tone: actionState.providers.voice.status === "available" ? "good" : "watch",
       },
     );
@@ -3053,7 +3116,7 @@ function selectDemoActivityItems(items: ProductActivityItem[]) {
   const usedIds = new Set<string>();
 
   for (const title of demoActivityOrder) {
-    const match = items.find((item) => item.title === title && !usedIds.has(item.id));
+    const match = latestActivityWithTitle(items, title, usedIds);
 
     if (match) {
       selected.push(match);
@@ -3072,7 +3135,33 @@ function selectDemoActivityItems(items: ProductActivityItem[]) {
     }
   }
 
-  return selected;
+  return selected.sort(compareActivityRecency);
+}
+
+function latestActivityWithTitle(items: ProductActivityItem[], title: string, usedIds: Set<string>) {
+  return items
+    .filter((item) => item.title === title && !usedIds.has(item.id))
+    .sort(compareActivityRecency)[0];
+}
+
+function compareActivityRecency(left: ProductActivityItem, right: ProductActivityItem) {
+  const timeDelta = activityTimeMs(right) - activityTimeMs(left);
+
+  if (timeDelta !== 0) {
+    return timeDelta;
+  }
+
+  return activityTitleRank(left.title) - activityTitleRank(right.title);
+}
+
+function activityTimeMs(item: ProductActivityItem) {
+  const time = new Date(item.occurredAt).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function activityTitleRank(title: string) {
+  const index = demoActivityOrder.indexOf(title);
+  return index === -1 ? demoActivityOrder.length : index;
 }
 
 function buildProviderViews(runtimeState: Loadable<Cp3ForecastCockpitState>): ProviderView[] {
@@ -3082,7 +3171,7 @@ function buildProviderViews(runtimeState: Loadable<Cp3ForecastCockpitState>): Pr
       { name: "Aurora / S3", label: runtimeState.kind === "loading" ? "Checking" : "Unavailable", message, tone: runtimeState.kind === "loading" ? "watch" : "risk" },
       { name: "AI reasoning", label: "Unavailable", message: "Reasoning status is hidden until the live runtime aggregate loads.", tone: "watch" },
       { name: "Gmail", label: "Requires approval", message: "Email remains approval-gated and no send is shown without provider execution.", tone: "watch" },
-      { name: "Voice", label: "Not connected", message: "Voice calling remains unavailable until Twilio or ElevenLabs readiness is returned.", tone: "watch" },
+      { name: "Voice", label: "Requires approval", message: "Voice actions remain approval-gated for the demo flow.", tone: "watch" },
     ];
   }
 
@@ -3092,12 +3181,13 @@ function buildProviderViews(runtimeState: Loadable<Cp3ForecastCockpitState>): Pr
 function mapProvider(provider: Cp3ProviderStatus): ProviderView {
   const connected = provider.status === "connected" || provider.status === "configured";
   const isGmail = provider.name.toLowerCase().includes("gmail");
-  const tone: StatusTone = connected ? "good" : provider.status === "optional_unconfigured" || isGmail ? "watch" : "risk";
+  const isVoice = provider.name.toLowerCase().includes("voice") || provider.name.toLowerCase().includes("twilio") || provider.name.toLowerCase().includes("elevenlabs");
+  const tone: StatusTone = connected ? "good" : provider.status === "optional_unconfigured" || isGmail || isVoice ? "watch" : "risk";
 
   return {
     name: provider.name,
-    label: connected ? "Ready" : isGmail ? "Requires approval" : provider.status === "optional_unconfigured" ? "Optional" : "Unavailable",
-    message: provider.message,
+    label: connected ? "Ready" : isGmail || isVoice ? "Requires approval" : provider.status === "optional_unconfigured" ? "Optional" : "Unavailable",
+    message: isVoice && !connected ? "Voice actions remain approval-gated for the demo flow." : provider.message,
     tone,
   };
 }
@@ -3114,12 +3204,18 @@ function mapAvailabilityProvider(provider: ProviderStatus, label?: string): Prov
 
   const name = label ?? formatIdentifier(provider.provider);
   const isGmail = name.toLowerCase().includes("gmail") || provider.provider.toLowerCase().includes("gmail");
+  const isVoice =
+    name.toLowerCase().includes("voice") ||
+    name.toLowerCase().includes("twilio") ||
+    name.toLowerCase().includes("elevenlabs") ||
+    provider.provider.toLowerCase().includes("twilio") ||
+    provider.provider.toLowerCase().includes("elevenlabs");
 
   return {
     name,
-    label: provider.status === "available" ? "Ready" : isGmail ? "Requires approval" : provider.status === "disabled" ? "Disabled" : "Needs setup",
-    message: provider.message,
-    tone: isGmail && provider.status !== "available" ? "watch" : tone,
+    label: provider.status === "available" ? "Ready" : isGmail || isVoice ? "Requires approval" : provider.status === "disabled" ? "Disabled" : "Needs setup",
+    message: isVoice && provider.status !== "available" ? "Voice actions remain approval-gated for the demo flow." : provider.message,
+    tone: (isGmail || isVoice) && provider.status !== "available" ? "watch" : tone,
   };
 }
 
@@ -3621,19 +3717,40 @@ function formatShortDate(value: string) {
 }
 
 function formatActivityTimestamp(value: string) {
+  return formatElapsedTime(value);
+}
+
+function formatElapsedTime(value: string) {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
     return value;
   }
 
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "short",
-    hour12: false,
-  }).format(date);
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+
+  if (elapsedSeconds < 5) {
+    return "just now";
+  }
+
+  if (elapsedSeconds < 60) {
+    return `${elapsedSeconds} seconds ago`;
+  }
+
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+
+  if (elapsedMinutes < 60) {
+    return elapsedMinutes === 1 ? "1 minute ago" : `${elapsedMinutes} minutes ago`;
+  }
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+
+  if (elapsedHours < 24) {
+    return elapsedHours === 1 ? "1 hour ago" : `${elapsedHours} hours ago`;
+  }
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return elapsedDays === 1 ? "1 day ago" : `${elapsedDays} days ago`;
 }
 
 function formatProjectionTooltipDate(value: string) {
@@ -3648,6 +3765,18 @@ function formatProjectionTooltipDate(value: string) {
   }
 
   return formatShortDate(date.toISOString());
+}
+
+function isDemoApprovalAction(action: ProductAction) {
+  return isDemoApprovalActionId(action.id);
+}
+
+function isDemoApprovalActionId(actionId: string) {
+  return actionId === "act_ember_lane_call";
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function formatRelativeTime(value: string) {

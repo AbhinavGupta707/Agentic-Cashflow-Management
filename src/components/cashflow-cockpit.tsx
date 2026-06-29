@@ -2,22 +2,26 @@
 
 import { type ComponentType, type FormEvent, useEffect, useState } from "react";
 import {
+  Activity,
   ArrowDownRight,
   ArrowUpRight,
   Banknote,
+  Bot,
   CalendarClock,
   CheckCircle2,
-  ChevronRight,
   CircleDollarSign,
   ClipboardCheck,
+  Cpu,
   DatabaseZap,
   FileInput,
   FilePlus2,
   FileText,
+  GitBranch,
   Inbox,
   LineChart,
   Loader2,
   MailCheck,
+  RadioTower,
   RefreshCw,
   ShieldCheck,
   UploadCloud,
@@ -25,6 +29,12 @@ import {
 
 import { DataState, UpdatedAt } from "@/components/data-state";
 import type { CompanyCaseState, CurrentCaseApiResponse } from "@/server/db/case-state-contract";
+import type {
+  Cp3ForecastCockpitApiResponse,
+  Cp3ForecastCockpitState,
+  Cp3ForecastPoint,
+  Cp3ProviderStatus,
+} from "@/server/db/cp3-forecast-cockpit-contract";
 import type { IngestionStatusApiResponse, IngestionStatusState } from "@/server/db/ingestion-status-contract";
 
 type CockpitState =
@@ -38,6 +48,12 @@ type IngestionPanelState =
   | { kind: "unavailable"; message: string; missingEnv: string[] }
   | { kind: "error"; message: string }
   | { kind: "ready"; data: IngestionStatusState };
+
+type Cp3PanelState =
+  | { kind: "loading" }
+  | { kind: "unavailable"; message: string; missingEnv: string[] }
+  | { kind: "error"; message: string }
+  | { kind: "ready"; data: Cp3ForecastCockpitState };
 
 type UploadPanelState =
   | { kind: "idle"; message: string }
@@ -68,6 +84,7 @@ const MANUAL_RECORD_OPTIONS = ["invoice", "customer", "obligation", "payment"] a
 export function CashflowCockpit() {
   const [state, setState] = useState<CockpitState>({ kind: "loading" });
   const [ingestionState, setIngestionState] = useState<IngestionPanelState>({ kind: "loading" });
+  const [cp3State, setCp3State] = useState<Cp3PanelState>({ kind: "loading" });
 
   useEffect(() => {
     let active = true;
@@ -138,9 +155,32 @@ export function CashflowCockpit() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadCp3State() {
+      const nextState = await fetchCp3ForecastCockpit();
+
+      if (active) {
+        setCp3State(nextState);
+      }
+    }
+
+    void loadCp3State();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   async function refreshIngestionStatus() {
     setIngestionState({ kind: "loading" });
     setIngestionState(await fetchIngestionStatus());
+  }
+
+  async function refreshCp3State() {
+    setCp3State({ kind: "loading" });
+    setCp3State(await fetchCp3ForecastCockpit());
   }
 
   return (
@@ -186,7 +226,9 @@ export function CashflowCockpit() {
         {state.kind === "ready" ? (
           <ReadyShell
             data={state.data}
+            cp3State={cp3State}
             ingestionState={ingestionState}
+            onRefreshCp3State={refreshCp3State}
             onRefreshIngestionStatus={refreshIngestionStatus}
           />
         ) : null}
@@ -273,24 +315,20 @@ function ErrorShell({
 
 function ReadyShell({
   data,
+  cp3State,
   ingestionState,
+  onRefreshCp3State,
   onRefreshIngestionStatus,
 }: {
   data: CompanyCaseState;
+  cp3State: Cp3PanelState;
   ingestionState: IngestionPanelState;
+  onRefreshCp3State: () => void;
   onRefreshIngestionStatus: () => void;
 }) {
   const overdueInvoices = data.invoices.filter((invoice) => invoice.status === "overdue");
   const approvalQueue = data.recommendedActions.filter((action) => action.approvalRequired);
   const openObligations = data.obligations.filter((obligation) => obligation.status !== "paid");
-  const forecastRows = (data.forecast?.points ?? []).map((point) => ({
-    date: formatShortDate(point.pointDate),
-    inflow: formatCurrency(point.inflowCents, data.company.baseCurrency),
-    outflow: formatCurrency(point.outflowCents, data.company.baseCurrency),
-    balance: formatCurrency(point.expectedCashCents, data.company.baseCurrency),
-    status: forecastStatus(point.expectedCashCents, data.forecast?.minimumCashCents ?? 0),
-    note: point.notes,
-  }));
 
   const runwayMetrics = [
     {
@@ -371,90 +409,18 @@ function ReadyShell({
         <div className="space-y-5">
           <OperationalIngestionPanel data={data} />
 
-          <section className="rounded-lg border border-ink-100 bg-white p-5 shadow-panel">
-            <div className="flex flex-col gap-3 border-b border-ink-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-ledger-blue">
-                  <LineChart aria-hidden="true" size={18} />
-                  <h2 className="text-base font-semibold text-ink-900">Four-week cash forecast</h2>
-                </div>
-                <p className="mt-1 text-sm leading-6 text-ink-500">
-                  Live forecast points are read from Aurora through the current-case repository path.
-                </p>
-              </div>
-              <button
-                className="inline-flex items-center justify-center gap-1 rounded-md bg-ink-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-ink-700 focus:outline-none focus:ring-2 focus:ring-ink-900 focus:ring-offset-2"
-                type="button"
-              >
-                Forecast detail
-                <ChevronRight aria-hidden="true" size={16} />
-              </button>
-            </div>
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[620px] border-separate border-spacing-0 text-left text-sm">
-                <thead>
-                  <tr className="text-xs uppercase text-ink-500">
-                    <th className="border-b border-ink-100 py-3 font-semibold">Week</th>
-                    <th className="border-b border-ink-100 py-3 font-semibold">Expected in</th>
-                    <th className="border-b border-ink-100 py-3 font-semibold">Committed out</th>
-                    <th className="border-b border-ink-100 py-3 font-semibold">Projected balance</th>
-                    <th className="border-b border-ink-100 py-3 font-semibold">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {forecastRows.map((row) => (
-                    <tr className="text-ink-700" key={row.date}>
-                      <td className="border-b border-ink-100 py-3 font-medium text-ink-900">{row.date}</td>
-                      <td className="border-b border-ink-100 py-3">{row.inflow}</td>
-                      <td className="border-b border-ink-100 py-3">{row.outflow}</td>
-                      <td className="border-b border-ink-100 py-3 font-medium">{row.balance}</td>
-                      <td className="border-b border-ink-100 py-3">
-                        <span className="inline-flex items-center gap-2">
-                          <StatusDot status={row.status} />
-                          {statusLabel(row.status)}
-                        </span>
-                        {row.note ? <p className="mt-1 text-xs text-ink-500">{row.note}</p> : null}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <Cp3ForecastPanel
+            currency={data.company.baseCurrency}
+            legacyForecast={data.forecast}
+            onRefresh={onRefreshCp3State}
+            state={cp3State}
+          />
 
-          <section className="rounded-lg border border-ink-100 bg-white p-5 shadow-panel">
-            <div className="flex items-center justify-between gap-3 border-b border-ink-100 pb-4">
-              <div>
-                <h2 className="text-base font-semibold text-ink-900">Approval-gated action queue</h2>
-                <p className="mt-1 text-sm text-ink-500">
-                  Aurora-backed recommendations stay blocked until approved.
-                </p>
-              </div>
-              <CheckCircle2 aria-hidden="true" className="text-ledger-green" size={20} />
-            </div>
-            <div className="divide-y divide-ink-100">
-              {data.recommendedActions.map((item) => (
-                <article className="grid gap-3 py-4 md:grid-cols-[1fr_auto]" key={item.externalId}>
-                  <div>
-                    <p className="font-medium text-ink-900">{item.customerName}</p>
-                    <p className="mt-1 text-sm leading-6 text-ink-500">{item.title}</p>
-                    <p className="mt-1 text-xs text-ink-500">{item.rationale}</p>
-                  </div>
-                  <div className="flex items-center gap-3 md:justify-end">
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-ink-900">
-                        {formatCurrency(item.expectedRecoveryCents, data.company.baseCurrency)}
-                      </p>
-                      <p className="text-xs text-ink-500">Priority {item.priority}</p>
-                    </div>
-                    <span className="rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-700">
-                      {item.approvalRequired ? "Needs approval" : item.status}
-                    </span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
+          <Cp3ActionQueuePanel
+            currency={data.company.baseCurrency}
+            legacyActions={data.recommendedActions}
+            state={cp3State}
+          />
         </div>
 
         <aside className="space-y-5">
@@ -472,14 +438,474 @@ function ReadyShell({
 
           <ReadinessPanel cards={sourceCards} />
 
-          <DataState
-            title="Provider execution remains unavailable"
-            description="Checkpoint 1 stops at the Aurora-backed cockpit shell. Gmail, voice, and live reasoning providers stay honestly disabled until later checkpoints."
-            variant="unavailable"
-          />
+          <Cp3AgentStatusPanel state={cp3State} />
+
+          <Cp3ProviderStatusPanel state={cp3State} />
         </aside>
       </section>
     </>
+  );
+}
+
+function Cp3ForecastPanel({
+  state,
+  currency,
+  legacyForecast,
+  onRefresh,
+}: {
+  state: Cp3PanelState;
+  currency: string;
+  legacyForecast: CompanyCaseState["forecast"];
+  onRefresh: () => void;
+}) {
+  if (state.kind === "loading") {
+    return (
+      <DataState
+        title="Loading CP3 forecast state"
+        description="The cockpit is reading forecast runs, points, shortfalls, and drivers from the CP3 route contract."
+        variant="loading"
+      />
+    );
+  }
+
+  if (state.kind === "unavailable") {
+    return (
+      <DataState
+        title="CP3 forecast route unavailable"
+        description={state.message}
+        variant="unavailable"
+        action={
+          <p className="text-xs font-medium text-ink-600">
+            Missing env: {state.missingEnv.join(", ")}
+          </p>
+        }
+      />
+    );
+  }
+
+  if (state.kind === "error") {
+    return (
+      <DataState
+        title="CP3 forecast route failed"
+        description={state.message}
+        variant="error"
+      />
+    );
+  }
+
+  const forecast = state.data.forecast;
+
+  if (forecast.state === "unavailable" || !forecast.run) {
+    return (
+      <DataState
+        title="CP3 forecast not generated"
+        description={`${forecast.message} Current-case baseline has ${legacyForecast?.points.length ?? 0} forecast points, but this panel waits for the CP3 route contract.`}
+        variant="unavailable"
+      />
+    );
+  }
+
+  const run = forecast.run;
+  const shortfallLabel =
+    forecast.shortfallPoints.length > 0
+      ? `${forecast.shortfallPoints.length} shortfall points`
+      : "No shortfall points";
+
+  return (
+    <section className="rounded-lg border border-ink-100 bg-white p-5 shadow-panel">
+      <div className="flex flex-col gap-3 border-b border-ink-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-ledger-blue">
+            <LineChart aria-hidden="true" size={18} />
+            <h2 className="text-base font-semibold text-ink-900">CP3 forecast run</h2>
+          </div>
+          <p className="mt-1 text-sm leading-6 text-ink-500">
+            {run.externalId} · {formatDateRange(run.horizonStartDate, run.horizonEndDate)} · {run.modelVersion}
+          </p>
+        </div>
+        <button
+          aria-label="Refresh CP3 forecast state"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-600 transition hover:border-ink-300 hover:bg-ink-50 focus:outline-none focus:ring-2 focus:ring-ink-900 focus:ring-offset-2"
+          onClick={onRefresh}
+          type="button"
+        >
+          <RefreshCw aria-hidden="true" size={16} />
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-4">
+        <MetricTile label="State" value={capitalize(run.state)} tone={run.state === "completed" ? "clear" : "watch"} />
+        <MetricTile
+          label="Minimum cash"
+          value={formatCurrency(run.minimumCashCents, currency)}
+          tone={run.minimumCashCents < 0 ? "risk" : "neutral"}
+        />
+        <MetricTile
+          label="Projected low"
+          value={run.minimumProjectedCashCents === null ? "No points" : formatCurrency(run.minimumProjectedCashCents, currency)}
+          tone={(run.minimumProjectedCashCents ?? 0) <= run.minimumCashCents ? "risk" : "neutral"}
+        />
+        <MetricTile
+          label="Shortfall"
+          value={formatCurrency(run.totalShortfallCents, currency)}
+          tone={run.totalShortfallCents > 0 ? "risk" : "clear"}
+        />
+      </div>
+
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[760px] border-separate border-spacing-0 text-left text-sm">
+          <thead>
+            <tr className="text-xs uppercase text-ink-500">
+              <th className="border-b border-ink-100 py-3 font-semibold">Date</th>
+              <th className="border-b border-ink-100 py-3 font-semibold">Expected in</th>
+              <th className="border-b border-ink-100 py-3 font-semibold">Committed out</th>
+              <th className="border-b border-ink-100 py-3 font-semibold">Projected cash</th>
+              <th className="border-b border-ink-100 py-3 font-semibold">Shortfall</th>
+              <th className="border-b border-ink-100 py-3 font-semibold">Drivers</th>
+            </tr>
+          </thead>
+          <tbody>
+            {forecast.points.map((point) => (
+              <tr className="text-ink-700" key={point.pointDate}>
+                <td className="border-b border-ink-100 py-3 font-medium text-ink-900">
+                  {formatShortDate(point.pointDate)}
+                </td>
+                <td className="border-b border-ink-100 py-3">{formatCurrency(point.inflowCents, currency)}</td>
+                <td className="border-b border-ink-100 py-3">{formatCurrency(point.outflowCents, currency)}</td>
+                <td className="border-b border-ink-100 py-3 font-medium">
+                  <span className="inline-flex items-center gap-2">
+                    <StatusDot status={forecastStatus(point.expectedCashCents, run.minimumCashCents)} />
+                    {formatCurrency(point.expectedCashCents, currency)}
+                  </span>
+                </td>
+                <td className="border-b border-ink-100 py-3">
+                  {point.shortfallCents > 0 ? formatCurrency(point.shortfallCents, currency) : "None"}
+                </td>
+                <td className="border-b border-ink-100 py-3">
+                  <DriverCell point={point} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.45fr)]">
+        <div className="rounded-md border border-ink-100 bg-ink-50 p-3">
+          <p className="text-sm font-semibold text-ink-900">Forecast drivers</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {forecast.drivers.length > 0 ? (
+              forecast.drivers.map((driver) => (
+                <span
+                  className="rounded-md border border-ink-100 bg-white px-2.5 py-1 text-xs text-ink-600"
+                  key={`${driver.label}-${driver.detail ?? ""}-${driver.amountCents ?? ""}`}
+                >
+                  <span className="font-semibold text-ink-900">{driver.label}</span>
+                  {driver.amountCents === null ? null : ` · ${formatCurrency(driver.amountCents, currency)}`}
+                </span>
+              ))
+            ) : (
+              <span className="text-sm text-ink-500">No structured driver metadata is stored yet.</span>
+            )}
+          </div>
+        </div>
+        <div className="rounded-md border border-ink-100 bg-ink-50 p-3">
+          <p className="text-sm font-semibold text-ink-900">{shortfallLabel}</p>
+          <p className="mt-2 text-xs leading-5 text-ink-500">
+            CP3 flags shortfalls from persisted shortfall metrics or balances below the run minimum cash threshold.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Cp3ActionQueuePanel({
+  state,
+  currency,
+  legacyActions,
+}: {
+  state: Cp3PanelState;
+  currency: string;
+  legacyActions: CompanyCaseState["recommendedActions"];
+}) {
+  if (state.kind === "loading") {
+    return (
+      <DataState
+        title="Loading CP3 action plan"
+        description="The cockpit is reading action plans, recommendations, approval state, and provider log counts."
+        variant="loading"
+      />
+    );
+  }
+
+  if (state.kind === "unavailable") {
+    return (
+      <DataState
+        title="CP3 action route unavailable"
+        description={state.message}
+        variant="unavailable"
+      />
+    );
+  }
+
+  if (state.kind === "error") {
+    return (
+      <DataState
+        title="CP3 action route failed"
+        description={state.message}
+        variant="error"
+      />
+    );
+  }
+
+  const actionState = state.data.actionPlan;
+
+  if (actionState.state === "unavailable") {
+    return (
+      <DataState
+        title="CP3 action plan not generated"
+        description={`${actionState.message} Current-case baseline has ${legacyActions.length} recommendations, but no CP3 action plan is exposed here yet.`}
+        variant="unavailable"
+      />
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-ink-100 bg-white p-5 shadow-panel">
+      <div className="flex items-center justify-between gap-3 border-b border-ink-100 pb-4">
+        <div>
+          <div className="flex items-center gap-2 text-ledger-blue">
+            <CheckCircle2 aria-hidden="true" size={18} />
+            <h2 className="text-base font-semibold text-ink-900">Approval-gated action queue</h2>
+          </div>
+          <p className="mt-1 text-sm text-ink-500">
+            {actionState.plan?.name ?? "Recommended actions"} · {actionState.message}
+          </p>
+        </div>
+        <span className="rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-700">
+          {actionState.totals.needsApprovalCount} need approval
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <MetricTile label="Actions" value={String(actionState.totals.actionCount)} tone="neutral" />
+        <MetricTile
+          label="Expected impact"
+          value={formatCurrency(actionState.totals.expectedImpactCents, currency)}
+          tone="clear"
+        />
+        <MetricTile
+          label="Plan state"
+          value={capitalize(actionState.plan?.state ?? "ready_for_review")}
+          tone="watch"
+        />
+      </div>
+
+      <div className="mt-4 divide-y divide-ink-100">
+        {actionState.recommendedActions.map((item) => (
+          <article className="grid gap-3 py-4 md:grid-cols-[1fr_auto]" key={item.externalId}>
+            <div>
+              <p className="font-medium text-ink-900">
+                {item.customer.name ?? item.obligation.title ?? "Unassigned action"}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-ink-500">{item.title}</p>
+              {item.rationale ? <p className="mt-1 text-xs leading-5 text-ink-500">{item.rationale}</p> : null}
+              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                <span className="rounded-md bg-ink-50 px-2 py-1 text-ink-600">
+                  {formatActionType(item.actionType)}
+                </span>
+                <span className="rounded-md bg-ink-50 px-2 py-1 text-ink-600">
+                  {item.approval.message}
+                </span>
+                <span className="rounded-md bg-ink-50 px-2 py-1 text-ink-600">
+                  {item.execution.message}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 md:justify-end">
+              <div className="text-right">
+                <p className="text-sm font-semibold text-ink-900">
+                  {formatCurrency(item.expectedCashImpactCents, currency)}
+                </p>
+                <p className="text-xs text-ink-500">
+                  {capitalize(item.priority)} · {item.scheduledFor ? formatShortDate(item.scheduledFor) : "unscheduled"}
+                </p>
+              </div>
+              <StatusPill label={capitalize(item.approval.state)} state={item.approval.state} />
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Cp3AgentStatusPanel({ state }: { state: Cp3PanelState }) {
+  if (state.kind === "loading") {
+    return (
+      <DataState
+        title="Loading agent run state"
+        description="The cockpit is checking for persisted CP3 forecast and recommendation agent runs."
+        variant="loading"
+      />
+    );
+  }
+
+  if (state.kind === "unavailable") {
+    return (
+      <DataState
+        title="Agent run state unavailable"
+        description={state.message}
+        variant="unavailable"
+      />
+    );
+  }
+
+  if (state.kind === "error") {
+    return (
+      <DataState
+        title="Agent run state failed"
+        description={state.message}
+        variant="error"
+      />
+    );
+  }
+
+  const agent = state.data.agent;
+
+  if (agent.state === "unavailable") {
+    return (
+      <DataState
+        title="Agent graph not persisted"
+        description={agent.message}
+        variant="unavailable"
+      />
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-ink-100 bg-white p-5 shadow-panel">
+      <div className="flex items-center gap-2">
+        <Bot aria-hidden="true" className="text-ledger-blue" size={18} />
+        <h2 className="text-base font-semibold text-ink-900">Agent run status</h2>
+      </div>
+      <div className="mt-4 space-y-3">
+        {agent.runs.map((run) => (
+          <article className="rounded-md border border-ink-100 p-3" key={run.id}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-ink-900">{run.graphName}</p>
+                <p className="mt-1 text-xs text-ink-500">
+                  {capitalize(run.runKind)} · {formatDateTime(run.createdAt)}
+                </p>
+              </div>
+              <StatusPill label={capitalize(run.state)} state={run.state} />
+            </div>
+            {run.errorMessage ? <p className="mt-2 text-xs text-ledger-red">{run.errorMessage}</p> : null}
+            <p className="mt-2 text-xs text-ink-500">
+              {run.traceAvailable ? "Trace metadata recorded" : "No trace metadata recorded"}
+            </p>
+          </article>
+        ))}
+      </div>
+      <div className="mt-4 rounded-md border border-ink-100 bg-ink-50 p-3">
+        <div className="flex items-center gap-2">
+          <GitBranch aria-hidden="true" className="text-ink-500" size={16} />
+          <p className="text-sm font-semibold text-ink-900">Checkpoints</p>
+        </div>
+        <div className="mt-3 grid gap-2 text-xs text-ink-600">
+          {agent.checkpoints.length > 0 ? (
+            agent.checkpoints.map((checkpoint) => (
+              <LinkageRow
+                key={checkpoint.checkpointKey}
+                label={checkpoint.label}
+                value={checkpoint.stage ?? formatDateTime(checkpoint.createdAt)}
+              />
+            ))
+          ) : (
+            <p>No checkpoint rows are linked to the latest run.</p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Cp3ProviderStatusPanel({ state }: { state: Cp3PanelState }) {
+  if (state.kind === "loading") {
+    return (
+      <DataState
+        title="Loading provider status"
+        description="The cockpit is reading CP3 provider posture without exposing hidden environment values."
+        variant="loading"
+      />
+    );
+  }
+
+  if (state.kind === "unavailable") {
+    return (
+      <DataState
+        title="Provider status unavailable"
+        description={state.message}
+        variant="unavailable"
+      />
+    );
+  }
+
+  if (state.kind === "error") {
+    return (
+      <DataState
+        title="Provider status failed"
+        description={state.message}
+        variant="error"
+      />
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-ink-100 bg-white p-5 shadow-panel">
+      <div className="flex items-center gap-2">
+        <RadioTower aria-hidden="true" className="text-ledger-blue" size={18} />
+        <h2 className="text-base font-semibold text-ink-900">Provider posture</h2>
+      </div>
+      <div className="mt-4 grid gap-3">
+        {state.data.providers.map((provider) => (
+          <ProviderStatusRow key={provider.key} provider={provider} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ProviderStatusRow({ provider }: { provider: Cp3ProviderStatus }) {
+  return (
+    <article className="rounded-md border border-ink-100 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            {provider.key === "aurora" ? (
+              <DatabaseZap aria-hidden="true" className="text-ink-500" size={16} />
+            ) : provider.key === "fireworks" || provider.key === "langsmith" ? (
+              <Cpu aria-hidden="true" className="text-ink-500" size={16} />
+            ) : (
+              <Activity aria-hidden="true" className="text-ink-500" size={16} />
+            )}
+            <p className="truncate text-sm font-medium text-ink-900">{provider.name}</p>
+          </div>
+          <p className="mt-1 text-xs text-ink-500">{provider.capability}</p>
+        </div>
+        <span className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${providerStatusClass(provider.status)}`}>
+          {providerStatusLabel(provider.status)}
+        </span>
+      </div>
+      <p className="mt-2 text-xs leading-5 text-ink-500">{provider.message}</p>
+      {provider.lastExecution ? (
+        <p className="mt-2 text-xs text-ink-500">
+          Last log: {provider.lastExecution.operation} · {provider.lastExecution.state} · {formatDateTime(provider.lastExecution.updatedAt)}
+        </p>
+      ) : null}
+    </article>
   );
 }
 
@@ -510,6 +936,37 @@ async function fetchIngestionStatus(): Promise<IngestionPanelState> {
     return {
       kind: "error",
       message: error instanceof Error ? error.message : "Unable to load ingestion status.",
+    };
+  }
+}
+
+async function fetchCp3ForecastCockpit(): Promise<Cp3PanelState> {
+  try {
+    const response = await fetch("/api/cp3/forecast-cockpit", {
+      cache: "no-store",
+    });
+    const payload = (await response.json()) as Cp3ForecastCockpitApiResponse;
+
+    if (payload.status === "ok") {
+      return { kind: "ready", data: payload.data };
+    }
+
+    if (payload.status === "unavailable") {
+      return {
+        kind: "unavailable",
+        message: payload.message,
+        missingEnv: payload.missingEnv,
+      };
+    }
+
+    return {
+      kind: "error",
+      message: payload.message,
+    };
+  } catch (error) {
+    return {
+      kind: "error",
+      message: error instanceof Error ? error.message : "Unable to load CP3 forecast cockpit state.",
     };
   }
 }
@@ -866,6 +1323,49 @@ function IngestionStatusPanel({
   );
 }
 
+function MetricTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "neutral" | "clear" | "risk" | "watch";
+}) {
+  const toneClass =
+    tone === "clear"
+      ? "text-ledger-green"
+      : tone === "risk"
+        ? "text-ledger-red"
+        : tone === "watch"
+          ? "text-ledger-amber"
+          : "text-ink-900";
+
+  return (
+    <article className="rounded-md border border-ink-100 bg-ink-50 p-3">
+      <p className="text-xs font-medium text-ink-500">{label}</p>
+      <p className={`mt-1 text-lg font-semibold ${toneClass}`}>{value}</p>
+    </article>
+  );
+}
+
+function DriverCell({ point }: { point: Cp3ForecastPoint }) {
+  if (point.drivers.length === 0 && !point.notes) {
+    return <span className="text-ink-500">No driver metadata</span>;
+  }
+
+  return (
+    <div className="max-w-[260px]">
+      {point.notes ? <p className="text-xs leading-5 text-ink-600">{point.notes}</p> : null}
+      {point.drivers.length > 0 ? (
+        <p className="mt-1 text-xs text-ink-500">
+          {point.drivers.slice(0, 2).map((driver) => driver.label).join(", ")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function StatusCountCard({
   label,
   value,
@@ -907,7 +1407,13 @@ function StatusPill({ label, state }: { label: string; state: string }) {
   const tone =
     state === "failed" || state === "dead_letter"
       ? "border-red-200 bg-red-50 text-ledger-red"
-      : state === "queued" || state === "processing"
+      : state === "queued" ||
+          state === "processing" ||
+          state === "pending" ||
+          state === "proposed" ||
+          state === "needs_approval" ||
+          state === "ready_for_review" ||
+          state === "waiting_for_approval"
         ? "border-amber-200 bg-amber-50 text-ledger-amber"
         : "border-green-200 bg-green-50 text-ledger-green";
 
@@ -973,18 +1479,6 @@ function forecastStatus(expectedCashCents: number, minimumCashCents: number): "c
   return "clear";
 }
 
-function statusLabel(status: "clear" | "risk" | "watch") {
-  if (status === "clear") {
-    return "Clear";
-  }
-
-  if (status === "risk") {
-    return "Shortfall risk";
-  }
-
-  return "Watch";
-}
-
 async function readJsonSafely(response: Response): Promise<unknown> {
   const text = await response.text();
 
@@ -1036,6 +1530,50 @@ function formatImportState(value: string) {
   return capitalize(value);
 }
 
+function formatActionType(value: string) {
+  if (value === "send_reminder") {
+    return "Send reminder";
+  }
+
+  if (value === "collect_invoice") {
+    return "Collect invoice";
+  }
+
+  if (value === "call_customer") {
+    return "Call customer";
+  }
+
+  return capitalize(value);
+}
+
+function providerStatusLabel(status: Cp3ProviderStatus["status"]) {
+  if (status === "connected") {
+    return "Connected";
+  }
+
+  if (status === "configured") {
+    return "Configured";
+  }
+
+  if (status === "optional_unconfigured") {
+    return "Optional";
+  }
+
+  return "Unavailable";
+}
+
+function providerStatusClass(status: Cp3ProviderStatus["status"]) {
+  if (status === "connected" || status === "configured") {
+    return "border-green-200 bg-green-50 text-ledger-green";
+  }
+
+  if (status === "optional_unconfigured") {
+    return "border-amber-200 bg-amber-50 text-ledger-amber";
+  }
+
+  return "border-red-200 bg-red-50 text-ledger-red";
+}
+
 function sumCents(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0);
 }
@@ -1054,5 +1592,20 @@ function formatShortDate(value: string) {
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
+  }).format(date);
+}
+
+function formatDateRange(start: string, end: string) {
+  return `${formatShortDate(start)} to ${formatShortDate(end)}`;
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
   }).format(date);
 }

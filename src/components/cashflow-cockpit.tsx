@@ -3188,7 +3188,12 @@ function mapProvider(provider: Cp3ProviderStatus): ProviderView {
   return {
     name: provider.name,
     label: connected ? "Ready" : isGmail || isVoice ? "Requires approval" : provider.status === "optional_unconfigured" ? "Optional" : "Unavailable",
-    message: isVoice && !connected ? "Voice actions remain approval-gated for the demo flow." : provider.message,
+    message:
+      isVoice && !connected
+        ? "Voice actions remain approval-gated for the demo flow."
+        : isGmail && !connected
+          ? "Email sends remain approval-gated; draft review stays available in the product flow."
+          : provider.message,
     tone,
   };
 }
@@ -3215,7 +3220,12 @@ function mapAvailabilityProvider(provider: ProviderStatus, label?: string): Prov
   return {
     name,
     label: provider.status === "available" ? "Ready" : isGmail || isVoice ? "Requires approval" : provider.status === "disabled" ? "Disabled" : "Needs setup",
-    message: isVoice && provider.status !== "available" ? "Voice actions remain approval-gated for the demo flow." : provider.message,
+    message:
+      isVoice && provider.status !== "available"
+        ? "Voice actions remain approval-gated for the demo flow."
+        : isGmail && provider.status !== "available"
+          ? "Email sends remain approval-gated; draft review stays available in the product flow."
+          : provider.message,
     tone: (isGmail || isVoice) && provider.status !== "available" ? "watch" : tone,
   };
 }

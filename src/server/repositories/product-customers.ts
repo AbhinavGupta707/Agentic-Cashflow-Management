@@ -23,6 +23,7 @@ export type ProductCustomerListItem = {
   lastInteractionAt: string | null;
   recommendedOutreach: ProductRecommendedOutreach;
   primaryContact: ProductCustomerContact | null;
+  topMemoryFact: ProductCustomerMemoryFact | null;
 };
 
 export type ProductCustomerDetail = ProductCustomerListItem & {
@@ -137,6 +138,13 @@ type CustomerSummaryRow = {
   action_rationale: string | null;
   expected_cash_impact_cents: number | null;
   approval_state: string | null;
+  top_memory_id: string | null;
+  top_memory_external_id: string | null;
+  top_memory_fact_type: string | null;
+  top_memory_content: string | null;
+  top_memory_confidence: number | null;
+  top_memory_source_type: string | null;
+  top_memory_valid_from: string | null;
 };
 
 type InvoiceRow = {
@@ -321,7 +329,14 @@ async function listCustomerSummaries(
         action.title as action_title,
         action.rationale as action_rationale,
         round(action.expected_cash_impact * 100)::bigint as expected_cash_impact_cents,
-        approval.state as approval_state
+        approval.state as approval_state,
+        top_memory.id as top_memory_id,
+        top_memory.external_id as top_memory_external_id,
+        top_memory.fact_type as top_memory_fact_type,
+        top_memory.content as top_memory_content,
+        top_memory.confidence::float8 as top_memory_confidence,
+        top_memory.source_type as top_memory_source_type,
+        top_memory.valid_from::text as top_memory_valid_from
       from customers c
       left join lateral (
         select id, full_name, role_title, email, phone_e164
@@ -377,6 +392,15 @@ async function listCustomerSummaries(
         order by requested_at desc
         limit 1
       ) approval on true
+      left join lateral (
+        select id, external_id, fact_type, content, confidence, source_type, valid_from
+        from memory_chunks
+        where tenant_id = c.tenant_id
+          and customer_id = c.id
+          and (valid_until is null or valid_until > now())
+        order by confidence desc nulls last, valid_from desc
+        limit 1
+      ) top_memory on true
       where c.tenant_id = :tenantId
         and c.company_id = :companyId
         and (
@@ -526,6 +550,17 @@ function normalizeCustomerSummary(row: CustomerSummaryRow): ProductCustomerListI
           role: row.contact_role,
           email: row.contact_email,
           phoneE164: row.contact_phone_e164,
+        }
+      : null,
+    topMemoryFact: row.top_memory_id
+      ? {
+          id: row.top_memory_id,
+          externalId: row.top_memory_external_id,
+          factType: row.top_memory_fact_type ?? "general",
+          content: row.top_memory_content ?? "",
+          confidence: row.top_memory_confidence,
+          sourceType: row.top_memory_source_type ?? "manual_note",
+          validFrom: row.top_memory_valid_from ?? new Date(0).toISOString(),
         }
       : null,
     recommendedOutreach: {

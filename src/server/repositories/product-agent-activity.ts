@@ -71,6 +71,15 @@ type AuditRow = {
   occurred_at: string;
 };
 
+type MemoryActivityRow = {
+  id: string;
+  source_type: string;
+  fact_type: string;
+  content: string;
+  confidence: number | null;
+  created_at: string;
+};
+
 export type ProductAgentActivityState = {
   companyExternalId: string;
   caseId: string;
@@ -85,6 +94,7 @@ export type ProductAgentActivityState = {
     eventCount: number;
     providerExecutionCount: number;
     auditCount: number;
+    memoryCount: number;
     traceCount: number;
     lastActivityAt: string | null;
   };
@@ -115,7 +125,7 @@ export type ProductAgentCheckpoint = {
 
 export type ProductActivityItem = {
   id: string;
-  kind: "agent_run" | "checkpoint" | "event" | "provider_execution" | "audit";
+  kind: "agent_run" | "checkpoint" | "event" | "provider_execution" | "audit" | "memory";
   title: string;
   state: string | null;
   occurredAt: string;
@@ -130,11 +140,12 @@ export async function getProductAgentActivity(
   const dataApi = await resolveDataApi(options);
   const scope = await resolveCompanyScope(dataApi, options);
   const caseId = resolveCaseId(options);
-  const [runs, events, providerExecutions, audits] = await Promise.all([
+  const [runs, events, providerExecutions, audits, memories] = await Promise.all([
     listAgentRuns(dataApi, scope.company_id, caseId),
     listEvents(dataApi, scope.tenant_id),
     listProviderExecutions(dataApi, scope.tenant_id, scope.company_id, caseId),
     listAudits(dataApi, scope.tenant_id),
+    listOutcomeMemories(dataApi, scope.tenant_id, scope.company_id, caseId),
   ]);
   const checkpoints = runs.length > 0 ? await listAgentCheckpoints(dataApi, scope.tenant_id, runs.map((run) => run.id)) : [];
   const checkpointsByRun = groupCheckpointsByRun(checkpoints);
@@ -171,11 +182,12 @@ export async function getProductAgentActivity(
       eventCount: events.length,
       providerExecutionCount: providerExecutions.length,
       auditCount: audits.length,
+      memoryCount: memories.length,
       traceCount: runs.filter((run) => Boolean(run.trace_url)).length,
-      lastActivityAt: latestActivityAt(runs, checkpoints, events, providerExecutions, audits),
+      lastActivityAt: latestActivityAt(runs, checkpoints, events, providerExecutions, audits, memories),
     },
     runs: normalizedRuns,
-    timeline: buildTimeline(runs, checkpoints, events, providerExecutions, audits).slice(0, 60),
+    timeline: buildTimeline(runs, checkpoints, events, providerExecutions, audits, memories).slice(0, 60),
   };
 }
 
@@ -312,12 +324,44 @@ async function listAudits(dataApi: AuroraDataApiClient, tenantId: string): Promi
   );
 }
 
+async function listOutcomeMemories(
+  dataApi: AuroraDataApiClient,
+  tenantId: string,
+  companyId: string,
+  caseId: string,
+): Promise<MemoryActivityRow[]> {
+  return dataApi.execute<MemoryActivityRow>(
+    `
+      select
+        m.id,
+        m.source_type,
+        m.fact_type,
+        m.content,
+        m.confidence::float8 as confidence,
+        m.created_at::text as created_at
+      from memory_chunks m
+      left join customers c on c.id = m.customer_id and c.tenant_id = m.tenant_id
+      where m.tenant_id = :tenantId
+        and (
+          m.company_id = :companyId
+          or c.company_id = :companyId
+        )
+        and m.source_type in ('manual_note', 'voice_call', 'voice_transcript', 'agent_extract')
+        and coalesce(m.metadata->>'caseId', m.metadata->>'case_id', :caseId) = :caseId
+      order by m.created_at desc
+      limit 20
+    `,
+    { tenantId, companyId, caseId },
+  );
+}
+
 function buildTimeline(
   runs: AgentRunRow[],
   checkpoints: AgentCheckpointRow[],
   events: EventLedgerRow[],
   providerExecutions: ProviderExecutionRow[],
   audits: AuditRow[],
+  memories: MemoryActivityRow[],
 ): ProductActivityItem[] {
   const items: ProductActivityItem[] = [
     ...runs.map((run) => ({
@@ -362,6 +406,17 @@ function buildTimeline(
       occurredAt: audit.occurred_at,
       detail: `${audit.target_type}${audit.target_id ? ` ${audit.target_id}` : ""}`,
     })),
+    ...memories.map((memory) => ({
+      id: memory.id,
+      kind: "memory" as const,
+      title: `Learned ${formatIdentifier(memory.fact_type)}`,
+      state: memory.source_type,
+      occurredAt: memory.created_at,
+      detail:
+        memory.confidence === null
+          ? memory.content
+          : `${memory.content} Confidence ${Math.round(memory.confidence * 100)}%.`,
+    })),
   ];
 
   return items.sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
@@ -385,6 +440,7 @@ function latestActivityAt(
   events: EventLedgerRow[],
   providerExecutions: ProviderExecutionRow[],
   audits: AuditRow[],
+  memories: MemoryActivityRow[],
 ): string | null {
   const values = [
     ...runs.map((run) => run.completed_at ?? run.started_at ?? run.updated_at ?? run.created_at),
@@ -392,6 +448,7 @@ function latestActivityAt(
     ...events.map((event) => event.occurred_at),
     ...providerExecutions.map((execution) => execution.completed_at ?? execution.attempted_at ?? execution.updated_at),
     ...audits.map((audit) => audit.occurred_at),
+    ...memories.map((memory) => memory.created_at),
   ]
     .filter((value): value is string => Boolean(value))
     .map((value) => new Date(value))

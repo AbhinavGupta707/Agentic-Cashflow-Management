@@ -211,6 +211,8 @@ export type ProductActionDetailContract = {
     approve: string;
     reject: string;
     editDraft: string;
+    recordOutcome: string;
+    executeVoice: string;
   };
 };
 
@@ -396,6 +398,35 @@ export type ProductDraftEditResult = {
   actions: ProductActionsState;
   edit: {
     applied: true;
+    message: string;
+  };
+  refresh: {
+    actionHref: string;
+    actionsHref: string;
+  };
+};
+
+export type ProductActionOutcomeType =
+  | "manual_note"
+  | "promise_to_pay"
+  | "payment_confirmed"
+  | "no_answer"
+  | "dispute_raised";
+
+export type ProductActionOutcomeResult = {
+  memoryFact: {
+    id: string;
+    factType: string;
+    content: string;
+    confidence: number | null;
+    sourceType: string;
+    createdAt: string;
+  };
+  action: ProductActionDetail;
+  actions: ProductActionsState;
+  outcome: {
+    applied: true;
+    type: ProductActionOutcomeType;
     message: string;
   };
   refresh: {
@@ -729,6 +760,127 @@ export async function editProductActionDraft(
     edit: {
       applied: true,
       message: "Draft was persisted in Aurora. No provider send or call was executed.",
+    },
+    refresh: buildRefreshLinks(input.actionIdOrExternalId),
+  };
+}
+
+export async function recordProductActionOutcome(
+  input: {
+    actionIdOrExternalId: string;
+    outcomeType: ProductActionOutcomeType;
+    summary: string;
+    promisedPaymentDate?: string | null;
+    confidence?: number | null;
+    idempotencyKey?: string | null;
+  },
+  options: RepositoryOptions = {},
+): Promise<ProductActionOutcomeResult> {
+  const dataApi = await resolveDataApi(options);
+  const scope = await resolveCompanyScope(dataApi, options);
+  const caseId = resolveCaseId(options);
+  const action = await findActionRow(dataApi, scope, caseId, input.actionIdOrExternalId);
+  const summary = input.summary.trim();
+  const confidence = input.confidence ?? defaultOutcomeConfidence(input.outcomeType);
+  const externalId = scopedIdempotencyKey([
+    "memory",
+    "product-outcome",
+    action.idempotency_key,
+    input.idempotencyKey ?? stableHash({
+      outcomeType: input.outcomeType,
+      summary,
+      promisedPaymentDate: input.promisedPaymentDate ?? null,
+    }),
+  ]);
+  const content = formatOutcomeMemoryContent(input.outcomeType, summary, input.promisedPaymentDate);
+  const [memory] = await dataApi.execute<MemoryRow>(
+    `
+      insert into memory_chunks (
+        tenant_id,
+        external_id,
+        company_id,
+        customer_id,
+        source_type,
+        source_id,
+        fact_type,
+        content,
+        confidence,
+        metadata
+      )
+      values (
+        :tenantId,
+        :externalId,
+        :companyId,
+        :customerId,
+        'manual_note',
+        :sourceId,
+        :factType,
+        :content,
+        :confidence,
+        :metadata
+      )
+      on conflict (tenant_id, external_id) do update set
+        content = excluded.content,
+        confidence = excluded.confidence,
+        metadata = memory_chunks.metadata || excluded.metadata,
+        updated_at = now()
+      returning
+        id,
+        fact_type,
+        content,
+        confidence::float8 as confidence,
+        source_type,
+        created_at::text as created_at
+    `,
+    {
+      tenantId: scope.tenant_id,
+      externalId,
+      companyId: scope.company_id,
+      customerId: action.customer_id,
+      sourceId: { value: action.id, typeHint: "UUID" },
+      factType: outcomeFactType(input.outcomeType),
+      content,
+      confidence,
+      metadata: jsonParam({
+        source: "product_outcome_capture",
+        caseId,
+        actionId: action.id,
+        actionExternalId: action.external_id ?? action.idempotency_key,
+        outcomeType: input.outcomeType,
+        promisedPaymentDate: input.promisedPaymentDate ?? null,
+      }),
+    },
+  );
+
+  const savedMemory = requireRow(memory, "saved outcome memory");
+  await insertAuditLog(dataApi, {
+    tenantId: scope.tenant_id,
+    action: "product.action_outcome.recorded",
+    targetType: "action",
+    targetId: action.id,
+    afterData: {
+      memoryChunkId: savedMemory.id,
+      outcomeType: input.outcomeType,
+      actionExternalId: action.external_id ?? action.idempotency_key,
+    },
+    idempotencyKey: scopedIdempotencyKey(["audit", "product-outcome", externalId]),
+  });
+
+  return {
+    memoryFact: {
+      id: savedMemory.id,
+      factType: savedMemory.fact_type,
+      content: savedMemory.content,
+      confidence: savedMemory.confidence,
+      sourceType: savedMemory.source_type,
+      createdAt: savedMemory.created_at,
+    },
+    action: await getProductActionDetail({ actionIdOrExternalId: input.actionIdOrExternalId }, options),
+    actions: await listProductActions(options),
+    outcome: {
+      applied: true,
+      type: input.outcomeType,
+      message: "Outcome memory was stored in Aurora and is now visible in the action, customer, and activity evidence surfaces.",
     },
     refresh: buildRefreshLinks(input.actionIdOrExternalId),
   };
@@ -1234,6 +1386,8 @@ function buildDetailContract(
       approve: `${href}/approve`,
       reject: `${href}/reject`,
       editDraft: `${href}/edit-draft`,
+      recordOutcome: `${href}/record-outcome`,
+      executeVoice: "/api/product/voice/calls",
     },
   };
 }
@@ -1375,7 +1529,7 @@ function buildGuardrails(row: ActionRow, providerGuardrails: string[]): string[]
   ];
 
   if (row.action_type === "call_customer") {
-    guardrails.push("A phone call requires a future voice execution route and approved state before Twilio can be used.");
+    guardrails.push("Phone execution requires approved state, live=true, Twilio configuration, TWILIO_TEST_TO_NUMBER, and an exact test-number destination match.");
   } else {
     guardrails.push("Email sending remains gated by the CP4 send runtime and an approved, unexpired approval record.");
   }
@@ -1456,7 +1610,7 @@ function buildProviderState(options: RepositoryOptions): ProductProviderState {
       reason: voiceMissing.length === 0 ? "configured" : "missing-config",
       message:
         voiceMissing.length === 0
-          ? "Twilio environment appears configured, but this action API does not place calls."
+          ? "Twilio environment appears configured. Calls remain gated by approval, live=true, and TWILIO_TEST_TO_NUMBER."
           : "Twilio is not fully configured. Voice execution remains unavailable.",
       missingEnv: voiceMissing,
       checkedAt: now.toISOString(),
@@ -1608,6 +1762,45 @@ function fallbackWhy(row: ActionRow): string {
 
 function scriptToBody(script: { opener: string; talkingPoints: string[]; close: string }): string {
   return [script.opener, "", ...script.talkingPoints.map((point) => `- ${point}`), "", script.close].join("\n");
+}
+
+function outcomeFactType(outcomeType: ProductActionOutcomeType): MemoryRow["fact_type"] {
+  if (outcomeType === "promise_to_pay") {
+    return "promise_to_pay";
+  }
+
+  if (outcomeType === "no_answer" || outcomeType === "dispute_raised") {
+    return "risk_signal";
+  }
+
+  if (outcomeType === "payment_confirmed") {
+    return "payment_behavior";
+  }
+
+  return "general";
+}
+
+function defaultOutcomeConfidence(outcomeType: ProductActionOutcomeType): number {
+  if (outcomeType === "payment_confirmed" || outcomeType === "promise_to_pay") {
+    return 0.84;
+  }
+
+  if (outcomeType === "dispute_raised") {
+    return 0.78;
+  }
+
+  return 0.7;
+}
+
+function formatOutcomeMemoryContent(
+  outcomeType: ProductActionOutcomeType,
+  summary: string,
+  promisedPaymentDate?: string | null,
+): string {
+  const prefix = formatIdentifier(outcomeType);
+  const date = promisedPaymentDate ? ` Promised payment date: ${promisedPaymentDate}.` : "";
+
+  return `${prefix}: ${summary}${date}`;
 }
 
 function jsonParam(value: unknown): DataApiParam {

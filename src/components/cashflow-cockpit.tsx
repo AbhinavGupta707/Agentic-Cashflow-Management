@@ -15,7 +15,6 @@ import {
   CircleCheck,
   CircleDollarSign,
   ClipboardCheck,
-  Clock3,
   Download,
   ExternalLink,
   FileText,
@@ -49,13 +48,15 @@ import type { ProviderStatus } from "@/server/db/provider-status-contract";
 import type {
   ProductActionDecisionResult,
   ProductActionDetail,
+  ProductActionOutcomeResult,
+  ProductActionOutcomeType,
   ProductActionsState,
   ProductActionSummary,
   ProductDraftEditResult,
 } from "@/server/repositories/product-actions";
 import type { ProductAgentActivityState, ProductActivityItem } from "@/server/repositories/product-agent-activity";
 import type { ProductCustomerListItem, ProductCustomersState } from "@/server/repositories/product-customers";
-import type { VoiceProviderReadiness } from "@/server/voice/contracts";
+import type { VoiceCallInitiationResult, VoiceProviderReadiness } from "@/server/voice/contracts";
 
 type Loadable<T> =
   | { kind: "loading" }
@@ -96,7 +97,7 @@ type ProductAction = {
   providerNote: string;
 };
 
-type ActionMutation = "approve" | "edit" | "reject";
+type ActionMutation = "approve" | "edit" | "reject" | "voice" | "outcome";
 
 type ActionMutationState =
   | { kind: "idle" }
@@ -118,6 +119,8 @@ type CustomerProfile = {
   tags: string[];
   contactName: string;
   invoiceLabel: string;
+  lastInteractionLabel: string;
+  memoryCards: Array<{ title: string; body: string; tone: StatusTone }>;
 };
 
 type ScenarioToggleKey = "customerAPays" | "partialPayment" | "supplierDeferral";
@@ -357,6 +360,68 @@ export function CashflowCockpit() {
     setActionMutationState({ kind: "error", message: result.message });
   };
 
+  const executeVoiceTestCall = async (actionId: string) => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "This will only call the configured Twilio test number if the action is approved and all live-call safeguards pass. Continue?",
+      )
+    ) {
+      return;
+    }
+
+    setActionMutationState({ kind: "pending", action: "voice" });
+
+    const result = await postProductMutation<VoiceCallInitiationResult>("/api/product/voice/calls", {
+      actionExternalId: actionId,
+      approved: true,
+      live: true,
+      idempotencyKey: `cockpit-voice-${actionId}-${Date.now()}`,
+    });
+
+    if (result.status === "ok") {
+      await refreshActions();
+      setActionMutationState({
+        kind: "success",
+        message:
+          result.data.state === "queued"
+            ? "Twilio accepted the approved test call. Real provider IDs are now shown from Twilio."
+            : result.data.message,
+      });
+      return;
+    }
+
+    setActionMutationState({ kind: "error", message: result.message });
+  };
+
+  const recordActionOutcome = async (
+    actionId: string,
+    input: {
+      outcomeType: ProductActionOutcomeType;
+      summary: string;
+      promisedPaymentDate?: string | null;
+    },
+  ) => {
+    setActionMutationState({ kind: "pending", action: "outcome" });
+
+    const result = await postProductMutation<ProductActionOutcomeResult>(
+      `/api/product/actions/${encodeURIComponent(actionId)}/record-outcome`,
+      {
+        ...input,
+        idempotencyKey: `cockpit-outcome-${actionId}-${Date.now()}`,
+      },
+    );
+
+    if (result.status === "ok") {
+      setSelectedActionDetailState({ kind: "ready", data: result.data.action });
+      await refreshActions();
+      setActionMutationState({ kind: "success", message: result.data.outcome.message });
+      return;
+    }
+
+    setActionMutationState({ kind: "error", message: result.message });
+  };
+
   return (
     <main className="min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-[#050914] text-slate-100">
       <div className="flex min-h-screen">
@@ -388,6 +453,8 @@ export function CashflowCockpit() {
                 onEditAction={() => setIsEditOpen(true)}
                 onCloseEdit={() => setIsEditOpen(false)}
                 onSaveDraft={(actionId, input) => void saveActionDraft(actionId, input)}
+                onExecuteVoiceCall={(actionId) => void executeVoiceTestCall(actionId)}
+                onRecordOutcome={(actionId, input) => void recordActionOutcome(actionId, input)}
               />
             ) : null}
             {activeScreen === "customers" ? <CustomerScreen currency={viewModel.currency} customer={viewModel.customer} /> : null}
@@ -681,6 +748,8 @@ function ActionsScreen({
   onEditAction,
   onCloseEdit,
   onSaveDraft,
+  onExecuteVoiceCall,
+  onRecordOutcome,
 }: {
   actions: ProductAction[];
   currency: string;
@@ -694,6 +763,11 @@ function ActionsScreen({
   onEditAction: () => void;
   onCloseEdit: () => void;
   onSaveDraft: (id: string, input: { channel: "email" | "voice_script"; subject: string | null; body: string }) => void;
+  onExecuteVoiceCall: (id: string) => void;
+  onRecordOutcome: (
+    id: string,
+    input: { outcomeType: ProductActionOutcomeType; summary: string; promisedPaymentDate?: string | null },
+  ) => void;
 }) {
   const totalImpact = actions.reduce((sum, action) => sum + action.impactCents, 0);
   const selectedDetail = selectedActionDetailState.kind === "ready" ? selectedActionDetailState.data : null;
@@ -852,6 +926,15 @@ function ActionsScreen({
             ) : null}
           </Panel>
 
+          <ActionExecutionPanel
+            action={displayedAction}
+            detail={selectedDetail}
+            isPending={isPending}
+            mutationState={mutationState}
+            onExecuteVoiceCall={onExecuteVoiceCall}
+            onRecordOutcome={onRecordOutcome}
+          />
+
           <Panel>
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
@@ -885,6 +968,170 @@ function ActionsScreen({
         />
       ) : null}
     </div>
+  );
+}
+
+function ActionExecutionPanel({
+  action,
+  detail,
+  isPending,
+  mutationState,
+  onExecuteVoiceCall,
+  onRecordOutcome,
+}: {
+  action: ProductAction;
+  detail: ProductActionDetail | null;
+  isPending: boolean;
+  mutationState: ActionMutationState;
+  onExecuteVoiceCall: (id: string) => void;
+  onRecordOutcome: (
+    id: string,
+    input: { outcomeType: ProductActionOutcomeType; summary: string; promisedPaymentDate?: string | null },
+  ) => void;
+}) {
+  const [outcomeType, setOutcomeType] = useState<ProductActionOutcomeType>("promise_to_pay");
+  const [summary, setSummary] = useState("Customer promised to confirm payment timing after approval review.");
+  const [promisedPaymentDate, setPromisedPaymentDate] = useState("");
+  const isPhone = action.channel === "Phone" || detail?.actionType === "call_customer";
+  const approvalState = detail?.approval.state ?? action.approvalState.toLowerCase();
+  const isApproved = approvalState === "approved";
+  const voice = detail?.providerState.providers.voice;
+  const hasPhone = Boolean(detail?.customerContext.contact.phoneE164);
+  const providerEvidence = detail?.executionHistory.providerExecutions[0] ?? null;
+  const voiceEvidence = detail?.executionHistory.voiceCalls[0] ?? null;
+  const canExecuteVoice = Boolean(detail && isPhone && isApproved && hasPhone && voice?.status === "available" && !isPending);
+  const pendingAction = mutationState.kind === "pending" ? mutationState.action : null;
+  const gateMessage = !detail
+    ? "Open a live action detail before execution."
+    : !isPhone
+      ? "This action uses the email/manual execution path."
+      : !isApproved
+        ? "Approve this action before any live voice execution can be attempted."
+        : !hasPhone
+          ? "No callable customer phone number is stored for this action."
+          : voice?.status !== "available"
+            ? voice?.message ?? "Twilio voice is not configured."
+            : voice.executionGate.message;
+
+  const submitOutcome = () => {
+    if (!detail || summary.trim().length < 8 || isPending) {
+      return;
+    }
+
+    onRecordOutcome(action.id, {
+      outcomeType,
+      summary: summary.trim(),
+      promisedPaymentDate: promisedPaymentDate || null,
+    });
+  };
+
+  return (
+    <Panel>
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-[620px]">
+          <div className="flex items-center gap-3">
+            <Phone aria-hidden="true" className="text-[#8c84ff]" size={22} />
+            <h3 className="text-lg font-semibold text-slate-100">Execution & outcome learning</h3>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-slate-400">
+            Provider execution stays separate from approval. RunwayOps only shows sent/called outcomes when Aurora has
+            real provider evidence, and every manual outcome becomes customer memory.
+          </p>
+        </div>
+        <StatusBadge
+          label={detail?.providerState.outboundOutcomeBackedByProvider ? "Provider evidence" : "Approval gated"}
+          tone={detail?.providerState.outboundOutcomeBackedByProvider ? "good" : "watch"}
+        />
+      </div>
+
+      <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(360px,1fr)]">
+        <div className="rounded-md border border-white/[0.08] bg-white/[0.03] p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-slate-100">Approved test call</p>
+              <p className="mt-2 text-sm leading-6 text-slate-400">{gateMessage}</p>
+            </div>
+            <TonePill tone={canExecuteVoice ? "good" : "watch"}>{canExecuteVoice ? "Ready" : "Gated"}</TonePill>
+          </div>
+          <button
+            className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[#4e43ff] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(78,67,255,0.24)] disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={!canExecuteVoice}
+            onClick={() => onExecuteVoiceCall(action.id)}
+            type="button"
+          >
+            {pendingAction === "voice" ? <Loader2 aria-hidden="true" className="animate-spin" size={16} /> : <Phone aria-hidden="true" size={16} />}
+            Place approved test call
+          </button>
+          <div className="mt-5 space-y-3 border-t border-white/[0.08] pt-5 text-sm text-slate-400">
+            <Guardrail label="Requires approved action, explicit live=true, Twilio credentials, TWILIO_TEST_TO_NUMBER, and exact destination match." />
+            <Guardrail label="No provider SID is persisted unless Twilio returns one." />
+            {providerEvidence ? (
+              <Guardrail
+                label={`Latest provider execution: ${providerEvidence.provider} ${providerEvidence.state}${
+                  providerEvidence.providerExecutionId ? ` (${providerEvidence.providerExecutionId})` : " with no provider id"
+                }.`}
+              />
+            ) : null}
+            {voiceEvidence ? (
+              <Guardrail
+                label={`Latest voice call: ${voiceEvidence.state}${
+                  voiceEvidence.providerCallId ? ` (${voiceEvidence.providerCallId})` : " with no provider id"
+                }.`}
+              />
+            ) : null}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-white/[0.08] bg-[#0a101a] p-5">
+          <p className="text-sm font-medium text-slate-100">Record outcome memory</p>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            Use this after a call, email reply, or manual follow-up to show the system learning from the outcome.
+          </p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-[190px_minmax(0,1fr)]">
+            <label className="space-y-2">
+              <span className="text-xs font-medium uppercase tracking-[0.04em] text-slate-500">Outcome</span>
+              <select
+                className="h-10 w-full rounded-md border border-white/[0.12] bg-[#111827] px-3 text-sm text-slate-100 outline-none"
+                onChange={(event) => setOutcomeType(event.target.value as ProductActionOutcomeType)}
+                value={outcomeType}
+              >
+                <option value="promise_to_pay">Promise to pay</option>
+                <option value="payment_confirmed">Payment confirmed</option>
+                <option value="no_answer">No answer</option>
+                <option value="dispute_raised">Dispute raised</option>
+                <option value="manual_note">Manual note</option>
+              </select>
+            </label>
+            <label className="space-y-2">
+              <span className="text-xs font-medium uppercase tracking-[0.04em] text-slate-500">Promised date</span>
+              <input
+                className="h-10 w-full rounded-md border border-white/[0.12] bg-[#111827] px-3 text-sm text-slate-100 outline-none"
+                onChange={(event) => setPromisedPaymentDate(event.target.value)}
+                type="date"
+                value={promisedPaymentDate}
+              />
+            </label>
+          </div>
+          <label className="mt-4 block space-y-2">
+            <span className="text-xs font-medium uppercase tracking-[0.04em] text-slate-500">Learning note</span>
+            <textarea
+              className="min-h-[92px] w-full resize-none rounded-md border border-white/[0.12] bg-[#111827] p-3 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600"
+              onChange={(event) => setSummary(event.target.value)}
+              value={summary}
+            />
+          </label>
+          <button
+            className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-md border border-emerald-400/35 bg-emerald-400/10 text-sm font-semibold text-emerald-200 disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={!detail || summary.trim().length < 8 || isPending}
+            onClick={submitOutcome}
+            type="button"
+          >
+            {pendingAction === "outcome" ? <Loader2 aria-hidden="true" className="animate-spin" size={16} /> : <Sparkles aria-hidden="true" size={16} />}
+            Save as customer memory
+          </button>
+        </div>
+      </div>
+    </Panel>
   );
 }
 
@@ -951,10 +1198,9 @@ function CustomerScreen({ currency, customer }: { currency: string; customer: Cu
             <PanelHeader title="Interaction history" />
             <div className="mt-5 space-y-4">
               {[
-                ["Phone call", `Spoke with ${customer.contactName}. Confirmed they received the invoice and are waiting on PO approval.`, "May 9, 2:17 PM", Phone, "good"],
-                ["Promise to pay", "Promised payment by May 16. PO expected today. Payment will be made Friday.", "May 9, 2:18 PM", Clock3, "watch"],
-                ["Payment received", "Payment received against an earlier invoice.", "Apr 30, 10:03 AM", CircleDollarSign, "accent"],
-                ["Email received", "Requested updated invoice with PO reference.", "Apr 28, 11:32 AM", Mail, "neutral"],
+                ["Latest customer evidence", customer.summary, customer.lastInteractionLabel, Sparkles, "good"],
+                ["Recommended outreach", `Next best channel is ${customer.tags[0] ?? "manual review"} for ${customer.invoiceLabel}.`, "Now", Phone, "watch"],
+                ["Approval state", "Outbound email and voice execution remain gated until approval and provider checks pass.", "Always on", ShieldCheck, "accent"],
               ].map(([title, body, time, Icon, tone]) => (
                 <TimelineRow body={String(body)} icon={Icon as ComponentType<{ size?: number; className?: string }>} key={String(title)} time={String(time)} title={String(title)} tone={tone as StatusTone} />
               ))}
@@ -965,12 +1211,8 @@ function CustomerScreen({ currency, customer }: { currency: string; customer: Cu
           <Panel>
             <PanelHeader title="What we've learned (Customer memory)" />
             <div className="mt-5 grid gap-3 md:grid-cols-3">
-              {[
-                ["Responds best by phone", "Phone outreach gets a response within 2 hours on average.", "good"],
-                ["Delays if PO is missing", "Payments delayed when PO is not provided.", "watch"],
-                ["Reliable after escalation", "Once escalated to manager, payments usually follow.", "good"],
-              ].map(([title, body, tone]) => (
-                <MemoryCard body={body} key={title} title={title} tone={tone as StatusTone} />
+              {customer.memoryCards.map(({ title, body, tone }) => (
+                <MemoryCard body={body} key={title} title={title} tone={tone} />
               ))}
             </div>
           </Panel>
@@ -1009,8 +1251,8 @@ function CustomerScreen({ currency, customer }: { currency: string; customer: Cu
             <div className="mt-5 space-y-3">
               {[
                 ["Selected invoice", `${formatCurrency(customer.outstandingCents, currency)} · Due date from live ledger`, "PDF", FileText],
-                ["Call transcript - May 9", `With ${customer.contactName}`, "Transcript", Activity],
-                ["Email reply - Apr 28", "Re: Invoice #INV-1017", "EML", Mail],
+                ["Latest memory", customer.summary, "Memory", Sparkles],
+                ["Provider audit", "Provider IDs appear only after real provider execution.", "Audit", ShieldCheck],
               ].map(([title, detail, kind, Icon]) => (
                 <EvidenceRow detail={String(detail)} icon={Icon as ComponentType<{ size?: number; className?: string }>} key={String(title)} kind={String(kind)} title={String(title)} />
               ))}
@@ -2577,6 +2819,32 @@ function mapProductCustomer(customer: ProductCustomerListItem): CustomerProfile 
   const riskScore = customer.riskScore ?? 45;
   const contactName = customer.primaryContact?.fullName?.split(" ")[0] ?? "Accounts";
   const recommendedChannel = formatIdentifier(customer.recommendedOutreach.channel);
+  const topMemory = customer.topMemoryFact;
+  const memoryCards: CustomerProfile["memoryCards"] = [
+    topMemory
+      ? {
+          title: formatIdentifier(topMemory.factType),
+          body: topMemory.content,
+          tone: statusTone(topMemory.factType),
+        }
+      : {
+          title: "Waiting for outcome",
+          body: "Record a call, reply, or manual outcome to create the next customer memory fact.",
+          tone: "watch" as StatusTone,
+        },
+    {
+      title: "Preferred next channel",
+      body: customer.recommendedOutreach.reason,
+      tone: customer.recommendedOutreach.channel === "phone" ? "good" : "accent",
+    },
+    {
+      title: "Approval evidence",
+      body: customer.recommendedOutreach.approvalState
+        ? `Recommended action approval is ${formatIdentifier(customer.recommendedOutreach.approvalState)}.`
+        : "No approval record is linked yet.",
+      tone: statusTone(customer.recommendedOutreach.approvalState ?? "pending"),
+    },
+  ];
 
   return {
     id: customer.externalId ?? customer.id,
@@ -2588,13 +2856,15 @@ function mapProductCustomer(customer: ProductCustomerListItem): CustomerProfile 
     exposureCents: customer.exposureCents,
     avgDaysLate: customer.averageDaysLate ?? 0,
     reliability: clamp(100 - riskScore, 5, 98),
-    summary: customer.recommendedOutreach.reason,
+    summary: topMemory?.content ?? customer.recommendedOutreach.reason,
     tags: [recommendedChannel, `${customer.openInvoiceCount} open invoices`, `${customer.overdueInvoiceCount} overdue`],
     contactName,
     invoiceLabel:
       customer.overdueInvoiceCount > 0
         ? `${customer.overdueInvoiceCount} overdue invoice${customer.overdueInvoiceCount === 1 ? "" : "s"}`
         : "the selected account balance",
+    lastInteractionLabel: customer.lastInteractionAt ? formatShortDate(customer.lastInteractionAt) : "No interaction yet",
+    memoryCards,
   };
 }
 
@@ -2791,6 +3061,10 @@ function iconForActivity(kind: ProductActivityItem["kind"]): ComponentType<{ siz
     return ShieldCheck;
   }
 
+  if (kind === "memory") {
+    return Sparkles;
+  }
+
   return Activity;
 }
 
@@ -2884,6 +3158,24 @@ function buildCustomerProfile(data: CompanyCaseState | null, totalOverdue: numbe
     tags: ["Responsive by phone", "Pays after escalation"],
     contactName: customer?.primaryContact?.fullName?.split(" ")[0] ?? "Sam",
     invoiceLabel: highestInvoice ? `invoice #${highestInvoice.invoiceNumber}` : "the selected invoice",
+    lastInteractionLabel: "Pending",
+    memoryCards: [
+      {
+        title: "Waiting for live memory",
+        body: memory?.factText ?? "Customer memory appears after live data, calls, replies, or manual outcomes are persisted.",
+        tone: memory ? "good" : "watch",
+      },
+      {
+        title: "Preferred next channel",
+        body: "RunwayOps selects outreach from available contact, receivable risk, and previous behavior.",
+        tone: "accent",
+      },
+      {
+        title: "Approval evidence",
+        body: "Outbound execution remains approval-gated until a live action is approved.",
+        tone: "good",
+      },
+    ],
   };
 }
 

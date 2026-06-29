@@ -20,6 +20,8 @@
     "check:cp2": "tsx scripts/check-cp2-contract.ts",
     "check:cp3": "tsx scripts/check-cp3-contract.ts",
     "check:cp4": "tsx scripts/check-cp4-contract.ts",
+    "check:cp5": "tsx scripts/check-cp5-contract.ts",
+    "check:cp6": "tsx scripts/check-cp6-contract.ts",
     "check:cp3-forecast": "tsx scripts/run-forecast-smoke.ts --dry-run",
     "agent:smoke": "tsx scripts/run-agent-smoke.ts --replay",
     "forecast:dry": "tsx scripts/run-forecast-smoke.ts --dry-run",
@@ -27,6 +29,8 @@
     "smoke:agent:no-key": "tsx scripts/smoke-agent-providers-no-key.ts",
     "smoke:gmail:no-key": "tsx scripts/smoke-gmail-no-key.ts",
     "smoke:cp4:runtime:no-key": "tsx scripts/smoke-cp4-runtime-no-key.ts",
+    "smoke:voice:no-key": "tsx scripts/smoke-voice-no-key.ts",
+    "smoke:product:no-key": "tsx scripts/smoke-product-no-key.ts",
     "smoke:cp4:approval-gate": "tsx scripts/smoke-cp4-approval-gate.ts",
     "smoke:data-api": "tsx scripts/check-data-api.ts",
     "smoke": "tsx scripts/smoke-current-case.ts"

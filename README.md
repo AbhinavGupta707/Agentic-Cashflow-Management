@@ -57,6 +57,15 @@ The CP4 QA/docs lane adds offline contract and Gmail no-key smoke commands:
 - `npm run check:cp4`
 - `npm run smoke:gmail:no-key`
 
+Checkpoint 5/6 QA and setup details are documented in:
+
+- `docs/checkpoint-5-6-orchestration.md`
+- `docs/checkpoint-5-6-status.md`
+- `npm run check:cp5`
+- `npm run check:cp6`
+- `npm run smoke:voice:no-key`
+- `npm run smoke:product:no-key`
+
 ## Fresh Clone Setup
 
 Clone only the canonical repository:
@@ -113,6 +122,22 @@ npm run check:cp4
 npm run smoke:gmail:no-key
 ```
 
+Checkpoint 5/6 adds offline checks for approval-gated voice, product API/UI
+readiness, and no-key provider posture:
+
+```bash
+npm run check:cp5
+npm run check:cp6
+npm run smoke:voice:no-key
+npm run smoke:product:no-key
+```
+
+During CP5/CP6 integration, require the product API route surface explicitly:
+
+```bash
+CP6_REQUIRE_PRODUCT_ROUTES=true npm run check:cp6
+```
+
 Live CP2 upload and processor smoke requires Aurora and S3 env. Live CP3
 deterministic forecast and agent graph smokes require Aurora env. Fireworks and
 LangSmith keys are optional CP3 live-provider checks; missing keys must produce
@@ -120,6 +145,13 @@ honest unavailable/tracing-disabled states instead of fake provider success.
 Gmail, ElevenLabs, and Twilio keys are not required for CP3. Gmail credentials
 are optional for CP4 local/no-key verification and must be configured only for
 explicit live Gmail smoke.
+
+For CP5/CP6, live Gmail OAuth linkage is not required. Fireworks, LangSmith,
+Twilio, ElevenLabs, and Aurora are optional live checks: missing keys, invalid
+ElevenLabs credentials, expired AWS sessions, and absent OAuth connections must
+produce honest unavailable states, not fake provider success. Live Twilio voice
+smoke requires configured Twilio env, an explicit `TWILIO_TEST_TO_PHONE`, and a
+recorded human approval before placing exactly one test call.
 
 CP4 Gmail env names are:
 
@@ -141,3 +173,7 @@ the recipient are explicit.
 Live migration, seed, and smoke commands require Aurora Data API credentials.
 Without local AWS credentials or required Aurora settings, scripts should fail
 with clear no-key messages instead of silently falling back to fixtures.
+
+Manual CP5/CP6 browser QA should judge the four reference-style product screens:
+Overview, Actions, Customers, and Forecasts. Use `Ui References/1.png` through
+`Ui References/4.png` plus `docs/checkpoint-5-6-status.md` as the checklist.

@@ -124,6 +124,36 @@ Then verify these routes on the deployment:
 
 ## Walkthrough Script
 
+Use this walkthrough after Checkpoint 7 integration lands and the browser QA
+checks pass. Before CP7 is complete, treat it as the target demo script rather
+than proof that every button is already wired.
+
+### Launch
+
+Local:
+
+```bash
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+Production:
+
+```text
+https://agentic-cashflow-management.vercel.app
+```
+
+The first page should be the RunwayOps-style cashflow product, not a checkpoint
+or command dashboard. The live status should say that product data is connected
+or clearly explain what provider/data source is unavailable.
+
+### Quick Demo Path
+
 1. Start on Overview. Show current cash position, runway, payroll pressure, and
    recoverable cash. The point is that this looks like a finance product, not a
    dev console.
@@ -131,15 +161,218 @@ Then verify these routes on the deployment:
    explain that the forecast is recomputed from Aurora facts.
 3. Open Actions. Select the highest-impact action. Show expected impact,
    rationale, approval state, draft/call preview, and guardrails.
-4. Approve an action only if you are ready to demonstrate execution. Otherwise,
-   leave it as approval-required to emphasize safe autonomy.
-5. Open Customers. Show the customer exposure, memory, outreach strategy, and
-   evidence trail.
-6. Open Agent Activity. Show the persisted agent run, checkpoints, provider
+4. Edit, approve, or reject the action. Approval should record the human
+   decision; it should not silently send Gmail or place a Twilio call.
+5. Open Agent Activity. Show the persisted agent run, checkpoints, provider
    readiness, and audit trail.
+6. Open Customers. Show the customer exposure, memory, outreach strategy, and
+   evidence trail.
 7. For a live phone demo, confirm the action is approved, set
    `TWILIO_TEST_TO_NUMBER` to your own test phone, and trigger exactly one call.
    Do not call a customer or any unapproved number during the demo.
+
+### Step 1: Overview Story
+
+Show the product home first.
+
+Expected user-visible story:
+
+- current cash position
+- forecast low point or runway risk
+- next major obligation such as payroll
+- recoverable cash from the highest-impact customer action
+- the assistant's recommended next step
+- approval queue and agent status
+
+What is happening behind the scenes:
+
+- Deterministic: current cash, invoices, obligations, forecast low point, and
+  cash impact calculations are read from Aurora-backed finance state.
+- Agentic: the recommended action is backed by the persisted agent/action plan
+  produced by the forecast/recommendation runtime.
+- Gated: no email or phone execution happens from the overview.
+
+Narration:
+
+```text
+RunwayOps has read the latest cash, invoices, obligations, and customer history.
+It is not just showing a dashboard; it is telling us what cash risk matters
+today and what action would change the outcome.
+```
+
+### Step 2: Forecasts
+
+Open Forecasts.
+
+Expected user-visible story:
+
+- baseline, optimistic, and conservative projections
+- scenario assumptions that can be toggled or previewed
+- scenario comparison
+- recommended action plan tied to forecast impact
+- no stale hardcoded 2025 chart labels unless the seeded scenario explicitly
+  explains that case date
+
+What is happening behind the scenes:
+
+- Deterministic: projection math, low point, obligations, invoice timing, and
+  sensitivity calculations are computed from Aurora facts.
+- Agentic: explanation/recommendation copy may be produced by Fireworks when
+  available, but the cash math itself should not depend on the LLM.
+- Gated: scenario previews do not send messages or place calls.
+
+Narration:
+
+```text
+The finance calculation is deterministic. The model is used to explain and
+rank the options, not to invent cash numbers.
+```
+
+### Step 3: Actions Detail
+
+Open Actions and select the highest-impact pending approval.
+
+Expected user-visible story:
+
+- selected action detail loads from `/api/product/actions/[id]`
+- rationale explains why this customer/action matters
+- cash impact and confidence are visible
+- draft email or call script is shown
+- preview is labelled as Fireworks-generated or deterministic fallback
+- guardrails explain that approval is required before outbound execution
+
+What is happening behind the scenes:
+
+- Deterministic: the selected action, customer, invoice, approval state, and
+  evidence are read from Aurora.
+- Fireworks: when configured, the action-detail endpoint can generate a
+  structured draft or call preview using the customer context and memory facts.
+- LangSmith: when tracing is configured and the runtime emits traces, trace
+  metadata is available through the agent/activity surface.
+- Gated: preview generation is not the same as sending an email or placing a
+  call.
+
+Narration:
+
+```text
+This is where the agent becomes useful. It has already chosen the highest impact
+action, but it still pauses for the operator. We can inspect the reasoning and
+the generated draft before anything leaves the system.
+```
+
+### Step 4: Edit, Approve, Or Reject
+
+Use the action controls deliberately.
+
+Edit expected behavior:
+
+- opens an editor for the email body or call script
+- saves through `POST /api/product/actions/[id]/edit-draft`
+- refreshes the selected action detail
+- keeps the action in an approval-required state
+
+Approve expected behavior:
+
+- records approval through `POST /api/product/actions/[id]/approve`
+- refreshes the approval state in the UI
+- does not silently send Gmail or place a Twilio call
+- leaves provider execution to the explicit provider route/guarded live action
+
+Reject expected behavior:
+
+- records rejection through `POST /api/product/actions/[id]/reject`
+- refreshes the action list/detail
+- produces no provider execution
+
+What is happening behind the scenes:
+
+- Deterministic: approval decisions are persisted in Aurora approval/action
+  state.
+- LangGraph concept: this is the human-in-the-loop interrupt/resume point. The
+  system pauses before outbound conduct, records the decision, and resumes only
+  along allowed paths.
+- Provider-gated: Gmail remains optional/OAuth-gated. Twilio calls remain
+  guarded by approval, explicit live mode, and `TWILIO_TEST_TO_NUMBER`.
+
+Narration:
+
+```text
+The autonomy is bounded. The agent can recommend and draft, but the human
+approval record is the gate before any external action.
+```
+
+### Step 5: Agent Activity
+
+Open Agent Activity.
+
+Expected user-visible story:
+
+- persisted agent run(s)
+- checkpoints or workflow steps
+- source/event activity
+- approval decision
+- provider execution entries only when real provider work exists
+- LangSmith trace links only when real trace metadata exists
+
+What is happening behind the scenes:
+
+- Deterministic: the timeline is assembled from persisted Aurora records.
+- LangGraph: runs/checkpoints represent the durable orchestration state.
+- LangSmith: trace readiness or trace links prove observability when configured.
+- Provider-gated: absent provider executions should be shown as absent/gated,
+  not as fake success.
+
+Narration:
+
+```text
+This is the audit trail. We can show exactly what the system read, what it
+decided, where it paused, and what happened after the human decision.
+```
+
+### Step 6: Customers
+
+Open Customers and select the customer related to the action.
+
+Expected user-visible story:
+
+- exposure and overdue invoices
+- payment behavior
+- interaction history
+- learned memory facts
+- outreach strategy and supporting evidence
+
+What is happening behind the scenes:
+
+- Deterministic: invoices, payments, exposure, and contact history are queried
+  from Aurora.
+- Agentic: memory facts and outreach strategy can be extracted or summarized
+  from communications, replies, and call transcripts.
+- Provider-gated: customer history should only show real emails/calls/replies
+  that exist in provider/audit state.
+
+Narration:
+
+```text
+The customer page explains why this was the right action. It is not just a
+queue; it learns from prior behavior and keeps the evidence attached.
+```
+
+### Step 7: Optional Live Phone Test
+
+Run this only when the demo intentionally includes a real test call.
+
+Requirements:
+
+- action is approved
+- `TWILIO_TEST_TO_NUMBER` is your own test phone number
+- Twilio env is configured
+- the UI or API call explicitly requests live execution
+
+Expected result:
+
+- a real Twilio call SID is recorded only if Twilio returns one
+- failure records a real failed/unavailable provider execution
+- no customer or unapproved number is called
 
 ## Acceptance Bar
 

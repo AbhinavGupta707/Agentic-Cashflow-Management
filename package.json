@@ -22,6 +22,7 @@
     "check:cp4": "tsx scripts/check-cp4-contract.ts",
     "check:cp5": "tsx scripts/check-cp5-contract.ts",
     "check:cp6": "tsx scripts/check-cp6-contract.ts",
+    "check:cp7": "tsx scripts/check-cp7-live-workflow.ts",
     "check:cp3-forecast": "tsx scripts/run-forecast-smoke.ts --dry-run",
     "agent:smoke": "tsx scripts/run-agent-smoke.ts --replay",
     "forecast:dry": "tsx scripts/run-forecast-smoke.ts --dry-run",

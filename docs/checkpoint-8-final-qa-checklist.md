@@ -180,9 +180,9 @@ Verified production deployment:
 
 - Canonical URL:
   `https://agentic-cashflow-management.vercel.app`
-- Deployment ID: `dpl_4UD3bJpeUAPfvAgS78UAsevZQMpN`
+- Deployment ID: `dpl_qM1CTwRCecpfGqsduvFv4Gkd5PMy`
 - Inspect URL:
-  `https://vercel.com/abhinavs-projects-f1cef581/agentic-cashflow-management/4UD3bJpeUAPfvAgS78UAsevZQMpN`
+  `https://vercel.com/abhinavs-projects-f1cef581/agentic-cashflow-management/qM1CTwRCecpfGqsduvFv4Gkd5PMy`
 
 Production route probes:
 

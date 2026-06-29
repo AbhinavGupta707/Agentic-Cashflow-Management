@@ -202,9 +202,9 @@ Chrome QA desktop evidence:
 Production evidence:
 
 - Production URL: `https://agentic-cashflow-management.vercel.app`
-- Production deployment ID: `dpl_4UD3bJpeUAPfvAgS78UAsevZQMpN`
+- Production deployment ID: `dpl_qM1CTwRCecpfGqsduvFv4Gkd5PMy`
 - Production inspect URL:
-  `https://vercel.com/abhinavs-projects-f1cef581/agentic-cashflow-management/4UD3bJpeUAPfvAgS78UAsevZQMpN`
+  `https://vercel.com/abhinavs-projects-f1cef581/agentic-cashflow-management/qM1CTwRCecpfGqsduvFv4Gkd5PMy`
 - Production alias verified after manual production deploy.
 - Safe production GET probes returned `200` for `/`, `/api/product/demo-intake`,
   `/api/product/overview`, `/api/product/actions`,

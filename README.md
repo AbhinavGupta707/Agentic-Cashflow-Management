@@ -50,6 +50,12 @@ Checkpoint 3 is integrated, merged, and live-Aurora verified:
 
 Checkpoint 4 is the next planned build slice: approval-gated Gmail OAuth,
 draft/send execution, provider IDs, replies, and communication outcome capture.
+The CP4 QA/docs lane adds offline contract and Gmail no-key smoke commands:
+
+- `docs/checkpoint-4-orchestration.md`
+- `docs/checkpoint-4-status.md`
+- `npm run check:cp4`
+- `npm run smoke:gmail:no-key`
 
 ## Fresh Clone Setup
 
@@ -99,11 +105,38 @@ handoff foundation:
 npm run check:cp3
 ```
 
+Checkpoint 4 adds an offline contract check for approval-gated email/Gmail
+handoff plus a no-key Gmail smoke:
+
+```bash
+npm run check:cp4
+npm run smoke:gmail:no-key
+```
+
 Live CP2 upload and processor smoke requires Aurora and S3 env. Live CP3
 deterministic forecast and agent graph smokes require Aurora env. Fireworks and
 LangSmith keys are optional CP3 live-provider checks; missing keys must produce
 honest unavailable/tracing-disabled states instead of fake provider success.
-Gmail, ElevenLabs, and Twilio keys are not required for CP3.
+Gmail, ElevenLabs, and Twilio keys are not required for CP3. Gmail credentials
+are optional for CP4 local/no-key verification and must be configured only for
+explicit live Gmail smoke.
+
+CP4 Gmail env names are:
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI`
+- `GOOGLE_GMAIL_SCOPES`
+- `GMAIL_ENCRYPTION_KEY`
+- `GMAIL_SENDER_EMAIL`
+- `GMAIL_TEST_RECIPIENT` for live smoke only
+
+Allowed CP4 Gmail scopes are
+`https://www.googleapis.com/auth/gmail.compose` and
+`https://www.googleapis.com/auth/gmail.send`. Do not commit, log, expose, or
+store plaintext OAuth access/refresh tokens. Live Gmail smoke may create exactly
+one draft or send exactly one approved test message only after credentials and
+the recipient are explicit.
 
 Live migration, seed, and smoke commands require Aurora Data API credentials.
 Without local AWS credentials or required Aurora settings, scripts should fail

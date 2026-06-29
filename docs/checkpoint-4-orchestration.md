@@ -76,6 +76,27 @@ Do not create recurring Codex automations. Do not create orchestration or review
 threads. These four task-lane worktree sessions are the only CP4 worker sessions
 for this checkpoint.
 
+## QA Docs And Smoke Lane Contract
+
+The QA/docs lane provides:
+
+- `npm run check:cp4` for offline approval/communication/provider execution
+  schema checks
+- `npm run smoke:gmail:no-key` for deterministic Gmail no-key posture
+- `docs/checkpoint-4-status.md` for runbook, browser smoke, live Gmail smoke,
+  guardrails, and CP5 handoff
+
+These checks must remain offline and deterministic. They may inspect local env
+and migration files, but they must not call Aurora, Google OAuth, or Gmail.
+Missing Google/Gmail env and missing OAuth tokens are expected no-key states.
+Plaintext token-like env names should fail the no-key smoke.
+
+CP4 live Gmail smoke is opt-in after credentials are configured. It may create
+exactly one Gmail draft or send exactly one approved test message to the
+explicit test recipient. Do not run a live send without approval, and do not
+write fake Gmail draft/message/provider IDs when credentials or tokens are
+missing.
+
 ## Acceptance Checklist
 
 Run after CP4 lanes are integrated:

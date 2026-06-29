@@ -386,6 +386,7 @@ export function CashflowCockpit() {
   const mutateActionDecision = async (actionId: string, decision: "approve" | "reject") => {
     const startedAt = Date.now();
     setActionMutationState({ kind: "pending", action: decision, actionId });
+    await nextAnimationFrame();
 
     const result = await postProductMutation<ProductActionDecisionResult>(
       `/api/product/actions/${encodeURIComponent(actionId)}/${decision}`,
@@ -3777,6 +3778,12 @@ function isDemoApprovalActionId(actionId: string) {
 
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function nextAnimationFrame() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
 }
 
 function formatRelativeTime(value: string) {

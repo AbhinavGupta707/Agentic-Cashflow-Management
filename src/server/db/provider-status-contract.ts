@@ -1,10 +1,11 @@
-export type ProviderName = "fireworks" | "gmail" | "langsmith";
+export type ProviderName = "elevenlabs" | "fireworks" | "gmail" | "langsmith" | "twilio";
 
 export type ProviderAvailability = "available" | "unavailable" | "disabled" | "error";
 
 export type ProviderUnavailableReason =
   | "configured"
   | "disabled"
+  | "invalid-config"
   | "missing-config"
   | "no-key"
   | "no-token"
@@ -38,3 +39,12 @@ export const GMAIL_PROVIDER_ENV = [
   "GOOGLE_REDIRECT_URI",
   "GMAIL_ENCRYPTION_KEY",
 ] as const;
+
+export const TWILIO_PROVIDER_ENV = [
+  "TWILIO_ACCOUNT_SID",
+  "TWILIO_AUTH_TOKEN",
+  "TWILIO_FROM_NUMBER",
+  "TWILIO_TWIML_URL",
+] as const;
+
+export const ELEVENLABS_PROVIDER_ENV = ["ELEVENLABS_API_KEY"] as const;

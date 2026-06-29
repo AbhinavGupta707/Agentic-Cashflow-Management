@@ -26,6 +26,7 @@
     "forecast:smoke": "tsx scripts/run-forecast-smoke.ts --replay",
     "smoke:agent:no-key": "tsx scripts/smoke-agent-providers-no-key.ts",
     "smoke:gmail:no-key": "tsx scripts/smoke-gmail-no-key.ts",
+    "smoke:voice:no-key": "tsx scripts/smoke-voice-no-key.ts",
     "smoke:cp4:runtime:no-key": "tsx scripts/smoke-cp4-runtime-no-key.ts",
     "smoke:cp4:approval-gate": "tsx scripts/smoke-cp4-approval-gate.ts",
     "smoke:data-api": "tsx scripts/check-data-api.ts",

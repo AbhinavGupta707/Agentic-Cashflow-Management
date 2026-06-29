@@ -2,8 +2,8 @@
 
 Date: 2026-06-29
 
-Status: Planned. Awaiting explicit user approval to launch implementation
-worker lanes.
+Status: Launched. Implementation worker lanes are active; this master thread is
+the only orchestration surface.
 
 ## Why This Checkpoint Exists
 
@@ -57,6 +57,28 @@ Recommended lanes after explicit approval:
 1. Live Intake, Event Loop, And Agent Graph.
 2. Execution, Memory, And Product UI Polish.
 3. QA, Submission Package, And Demo Evidence.
+
+## Worker Lanes
+
+Launched from master thread `019f10e1-1751-7640-834d-5ab6ec3ea572` on
+2026-06-29 after baseline commits:
+
+- `dfa42d2 docs: plan checkpoint 8 final product push`
+- `b14b0ee docs: tighten checkpoint 8 demo script`
+
+| Lane | Thread ID | Worktree | Ownership |
+| --- | --- | --- | --- |
+| Live Intake, Event Loop, And Agent Graph | `019f1479-55a8-7e03-8dc3-fae43622a706` | `/Users/abhinavgupta/.codex/worktrees/7c6d/Agentic-Cashflow-Management` | Intake/sample-pack routes, event inbox loop, forecast/action refresh, Fireworks structured reasoning, agent checkpoint evidence |
+| Execution, Memory, And Product UI Polish | `019f1479-7bb9-7ea1-835b-3d62a13032d6` | `/Users/abhinavgupta/.codex/worktrees/f29f/Agentic-Cashflow-Management` | Approval-gated Twilio test-call path, outcome memory, premium product UI polish, provider/readiness surfaces |
+| QA, Submission Package, And Demo Evidence | `019f1479-a41d-7512-b272-b9f2b4796f7a` | `/Users/abhinavgupta/.codex/worktrees/1c0f/Agentic-Cashflow-Management` | `check:cp8`, architecture/submission docs, public content draft, demo/evidence runbooks |
+
+Master constraints:
+
+- Do not create additional orchestrator, monitor, review, or recurring
+  automation sessions.
+- Worker sessions are task lanes only.
+- Master owns status checks, merge review, integration fixes, final
+  verification, deployment, browser QA, and worker cleanup/archive.
 
 ## Non-Negotiable Guardrails
 
@@ -129,4 +151,3 @@ Demo video link:
 Known gated flows:
 Residual risks:
 ```
-

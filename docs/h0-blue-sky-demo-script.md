@@ -112,8 +112,8 @@ approval and written back into Aurora.
 
 In Agent Activity, you can see the evidence: finance pack imported, forecast
 recomputed, recommendation ranked, draft generated, human approval recorded, and
-outbound call initiated. If the call is completed, Twilio callbacks, transcript
-state, and recorded outcomes write back into Aurora memory. This is why the
+outbound call initiated. After a completed call or recorded outcome, transcripts
+and memory write back into Aurora. This is why the
 Vercel deployment goes beyond a static front end: screens, APIs, model calls,
 approval state, provider execution, and audit trail share live state.
 

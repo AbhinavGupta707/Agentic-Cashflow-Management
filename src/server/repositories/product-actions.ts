@@ -1109,6 +1109,13 @@ function actionSelectSql(): string {
 function actionOrderSql(): string {
   return `
     order by
+      case
+        when a.external_id = 'act_ember_lane_call' then 0
+        when approval.state = 'pending' then 1
+        when approval.state = 'approved' then 2
+        when approval.state = 'rejected' then 4
+        else 3
+      end,
       case a.state
         when 'needs_approval' then 0
         when 'approved' then 1

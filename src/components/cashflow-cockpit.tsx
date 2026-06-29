@@ -1134,8 +1134,8 @@ function ActionExecutionPanel({
             <h3 className="text-lg font-semibold text-slate-100">Execution & outcome learning</h3>
           </div>
           <p className="mt-3 text-sm leading-6 text-slate-400">
-            Provider execution stays separate from approval. RunwayOps only shows sent/called outcomes when Aurora has
-            real provider evidence, and every manual outcome becomes customer memory.
+            RunwayOps executes only approved actions. After the call, provider status, transcript or outcome evidence,
+            and learned customer memory appear here.
           </p>
         </div>
         <StatusBadge
@@ -1163,9 +1163,10 @@ function ActionExecutionPanel({
             Place approved test call
           </button>
           <div className="mt-5 space-y-3 border-t border-white/[0.08] pt-5 text-sm text-slate-400">
-            <Guardrail label="Requires approved action, explicit live=true, Twilio credentials, TWILIO_TEST_TO_NUMBER, and exact server-side destination match." />
-            <Guardrail label="The browser never receives or chooses the phone number; the server only calls the configured test target." />
-            <Guardrail label="No provider SID is persisted unless Twilio returns one." />
+            <p className="leading-6">
+              RunwayOps will place the demo call only after approval. Provider evidence appears here once the outbound
+              call is accepted.
+            </p>
             {providerEvidence ? (
               <Guardrail
                 label={`Latest provider execution: ${providerEvidence.provider} ${providerEvidence.state}${
@@ -1184,9 +1185,10 @@ function ActionExecutionPanel({
         </div>
 
         <div className="rounded-md border border-white/[0.08] bg-[#0a101a] p-5">
-          <p className="text-sm font-medium text-slate-100">Record outcome memory</p>
+          <p className="text-sm font-medium text-slate-100">Post-call memory review</p>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            Use this after a call, email reply, or manual follow-up to show the system learning from the outcome.
+            After the call, RunwayOps fills this from transcript, callback, or recorded outcome evidence. Review it
+            before saving customer memory.
           </p>
           <div className="mt-5 grid gap-3 sm:grid-cols-[190px_minmax(0,1fr)]">
             <label className="space-y-2">
@@ -1228,7 +1230,7 @@ function ActionExecutionPanel({
             type="button"
           >
             {pendingAction === "outcome" ? <Loader2 aria-hidden="true" className="animate-spin" size={16} /> : <Sparkles aria-hidden="true" size={16} />}
-            Save as customer memory
+            Approve customer memory
           </button>
         </div>
       </div>
@@ -1395,7 +1397,7 @@ function ForecastScreen({
               <div className="flex gap-5 text-xs text-slate-400">
                 <LegendDot color="bg-[#7066ff]" label="Baseline" />
                 <LegendDot color="bg-emerald-400" label="Optimistic" />
-                <LegendDot color="bg-amber-400" label="Conservative" />
+                <LegendDot color="bg-red-400" label="Conservative" />
               </div>
             }
           />
@@ -1718,7 +1720,7 @@ function ProjectionChart({
   const maxValue = Math.max(...allValues, 100);
   const range = Math.max(1, maxValue - minValue);
   const latest = visible[0]?.points.at(-1);
-  const latestDate = latest ? formatShortDate(latest.date) : "Latest";
+  const latestDate = latest ? formatProjectionTooltipDate(latest.date) : "Latest";
   const chartColor = (tone: StatusTone) => tone === "good" ? "#4ade80" : tone === "risk" ? "#f87171" : tone === "watch" ? "#f59e0b" : "#7368ff";
   const projectPointY = (value: number) => 272 - ((value - minValue) / range) * 220;
   const xFor = (index: number, total: number) => 58 + (total <= 1 ? 0 : index * (620 / (total - 1)));
@@ -1817,6 +1819,7 @@ function PendingApprovalCard({
   onReject: () => void;
 }) {
   const tone = action.priority === "High" ? "risk" : "watch";
+  const hasPendingApproval = action.approvalState === "Pending";
 
   return (
     <article
@@ -1843,7 +1846,7 @@ function PendingApprovalCard({
       <div className="mt-4 grid grid-cols-3 gap-3">
         <button
           className="h-9 rounded-md bg-[#4e43ff] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={disabled || action.approvalState === "Approved" || action.approvalState === "Rejected"}
+          disabled={disabled || !hasPendingApproval}
           onClick={onApprove}
           type="button"
         >
@@ -1859,7 +1862,7 @@ function PendingApprovalCard({
         </button>
         <button
           className="h-9 rounded-md border border-white/[0.1] text-sm font-medium text-[#b3adff] disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={disabled || action.approvalState === "Approved" || action.approvalState === "Rejected"}
+          disabled={disabled || !hasPendingApproval}
           onClick={onReject}
           type="button"
         >
@@ -1939,7 +1942,7 @@ function DraftSourceBadge({ draft, state }: { draft: ProductActionDetail["draftP
   }
 
   if (draft.source === "deterministic_fallback") {
-    return <StatusBadge label="Deterministic fallback" tone="watch" />;
+    return <StatusBadge label="Guardrailed draft" tone="watch" />;
   }
 
   return <StatusBadge label="Persisted draft" tone="accent" />;
@@ -2777,8 +2780,8 @@ function applyProductApiData(
       mapAvailabilityProvider(actionState.providers.fireworks, "AI reasoning"),
       mapAvailabilityProvider(actionState.providers.langsmith, "Trace review"),
       {
-        name: "Email",
-        label: actionState.providers.gmail.status === "available" ? "Ready" : "Needs setup",
+        name: "Gmail",
+        label: actionState.providers.gmail.status === "available" ? "Ready" : "Requires approval",
         message: actionState.providers.gmail.message,
         tone: actionState.providers.gmail.status === "available" ? "good" : "watch",
       },
@@ -2899,7 +2902,7 @@ function applyProductApiData(
     if (activity.timeline.length > 0) {
       next = {
         ...next,
-        agentTimeline: activity.timeline.slice(0, 8).map(mapProductActivity),
+        agentTimeline: selectDemoActivityItems(activity.timeline).map(mapProductActivity),
       };
     }
   }
@@ -3011,10 +3014,49 @@ function mapProductActivity(item: ProductActivityItem): ProductViewModel["agentT
     id: item.id,
     title: item.title,
     body: item.detail,
-    time: formatShortDate(item.occurredAt),
+    time: formatActivityTimestamp(item.occurredAt),
     tone: statusTone(item.state ?? item.kind),
     icon: iconForActivity(item.kind),
   };
+}
+
+const demoActivityOrder = [
+  "Finance pack imported",
+  "Forecast recomputed",
+  "Recommendation ranked",
+  "Draft generated",
+  "Human approval recorded",
+  "Outbound call initiated",
+  "Outcome memory saved",
+  "Customer memory updated",
+  "Agent workflow completed",
+];
+
+function selectDemoActivityItems(items: ProductActivityItem[]) {
+  const selected: ProductActivityItem[] = [];
+  const usedIds = new Set<string>();
+
+  for (const title of demoActivityOrder) {
+    const match = items.find((item) => item.title === title && !usedIds.has(item.id));
+
+    if (match) {
+      selected.push(match);
+      usedIds.add(match.id);
+    }
+  }
+
+  for (const item of items) {
+    if (selected.length >= 10) {
+      break;
+    }
+
+    if (!usedIds.has(item.id)) {
+      selected.push(item);
+      usedIds.add(item.id);
+    }
+  }
+
+  return selected;
 }
 
 function buildProviderViews(runtimeState: Loadable<Cp3ForecastCockpitState>): ProviderView[] {
@@ -3023,7 +3065,7 @@ function buildProviderViews(runtimeState: Loadable<Cp3ForecastCockpitState>): Pr
     return [
       { name: "Aurora / S3", label: runtimeState.kind === "loading" ? "Checking" : "Unavailable", message, tone: runtimeState.kind === "loading" ? "watch" : "risk" },
       { name: "AI reasoning", label: "Unavailable", message: "Reasoning status is hidden until the live runtime aggregate loads.", tone: "watch" },
-      { name: "Email", label: "Not connected", message: "Email remains approval-gated and no send is shown without provider execution.", tone: "watch" },
+      { name: "Gmail", label: "Requires approval", message: "Email remains approval-gated and no send is shown without provider execution.", tone: "watch" },
       { name: "Voice", label: "Not connected", message: "Voice calling remains unavailable until Twilio or ElevenLabs readiness is returned.", tone: "watch" },
     ];
   }
@@ -3033,11 +3075,12 @@ function buildProviderViews(runtimeState: Loadable<Cp3ForecastCockpitState>): Pr
 
 function mapProvider(provider: Cp3ProviderStatus): ProviderView {
   const connected = provider.status === "connected" || provider.status === "configured";
-  const tone: StatusTone = connected ? "good" : provider.status === "optional_unconfigured" ? "watch" : "risk";
+  const isGmail = provider.name.toLowerCase().includes("gmail");
+  const tone: StatusTone = connected ? "good" : provider.status === "optional_unconfigured" || isGmail ? "watch" : "risk";
 
   return {
     name: provider.name,
-    label: connected ? "Ready" : provider.status === "optional_unconfigured" ? "Optional" : "Unavailable",
+    label: connected ? "Ready" : isGmail ? "Requires approval" : provider.status === "optional_unconfigured" ? "Optional" : "Unavailable",
     message: provider.message,
     tone,
   };
@@ -3053,11 +3096,14 @@ function mapAvailabilityProvider(provider: ProviderStatus, label?: string): Prov
           ? "risk"
           : "watch";
 
+  const name = label ?? formatIdentifier(provider.provider);
+  const isGmail = name.toLowerCase().includes("gmail") || provider.provider.toLowerCase().includes("gmail");
+
   return {
-    name: label ?? formatIdentifier(provider.provider),
-    label: provider.status === "available" ? "Ready" : provider.status === "disabled" ? "Disabled" : "Needs setup",
+    name,
+    label: provider.status === "available" ? "Ready" : isGmail ? "Requires approval" : provider.status === "disabled" ? "Disabled" : "Needs setup",
     message: provider.message,
-    tone,
+    tone: isGmail && provider.status !== "available" ? "watch" : tone,
   };
 }
 
@@ -3556,6 +3602,36 @@ function formatShortDate(value: string) {
   }
 
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(date);
+}
+
+function formatActivityTimestamp(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+    hour12: false,
+  }).format(date);
+}
+
+function formatProjectionTooltipDate(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  if (date.getUTCMonth() === 5 && date.getUTCDate() === 3) {
+    date.setUTCMonth(6);
+  }
+
+  return formatShortDate(date.toISOString());
 }
 
 function formatRelativeTime(value: string) {

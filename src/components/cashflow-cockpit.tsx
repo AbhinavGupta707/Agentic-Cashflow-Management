@@ -228,10 +228,10 @@ export function CashflowCockpit() {
   }, [selectedActionId, viewModel.actions]);
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#050914] text-slate-100">
+    <main className="min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-[#050914] text-slate-100">
       <div className="flex min-h-screen">
         <Sidebar activeScreen={activeScreen} onScreenChange={setActiveScreen} readiness={viewModel.readinessSummary} />
-        <section className="min-w-0 flex-1 border-l border-white/[0.07] bg-[radial-gradient(circle_at_30%_0%,rgba(78,70,255,0.12),transparent_36%),linear-gradient(180deg,#070c15_0%,#060a12_45%,#04070d_100%)]">
+        <section className="min-w-0 max-w-[100vw] flex-1 overflow-x-hidden border-white/[0.07] bg-[radial-gradient(circle_at_30%_0%,rgba(78,70,255,0.12),transparent_36%),linear-gradient(180deg,#070c15_0%,#060a12_45%,#04070d_100%)] md:border-l">
           <TopCaseBar
             companyName={viewModel.companyName}
             caseName={viewModel.caseName}
@@ -239,7 +239,7 @@ export function CashflowCockpit() {
             liveState={viewModel.liveState}
           />
           <MobileNav activeScreen={activeScreen} onScreenChange={setActiveScreen} />
-          <div className="mx-auto w-full max-w-[1240px] px-5 py-5 lg:px-7">
+          <div className="mx-auto w-full max-w-[1240px] px-4 py-5 sm:px-5 lg:px-7">
             {activeScreen === "overview" ? (
               <OverviewScreen model={viewModel} onOpenActions={() => setActiveScreen("actions")} />
             ) : null}
@@ -356,7 +356,7 @@ function MobileNav({
   onScreenChange: (screen: ScreenKey) => void;
 }) {
   return (
-    <nav className="flex gap-2 overflow-x-auto border-b border-white/[0.07] bg-[#070c15]/90 px-5 py-3 md:hidden">
+    <nav className="grid w-full min-w-0 max-w-full grid-cols-4 gap-2 border-b border-white/[0.07] bg-[#070c15]/90 px-4 py-3 md:hidden">
       {navItems.map((item) => {
         const Icon = item.icon;
         const active = activeScreen === item.key;
@@ -364,7 +364,7 @@ function MobileNav({
         return (
           <button
             className={clsx(
-              "flex h-10 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium",
+              "flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-medium",
               active
                 ? "border-[#6256ff]/70 bg-[#121b45] text-white"
                 : "border-white/[0.08] bg-white/[0.025] text-slate-400",
@@ -374,7 +374,7 @@ function MobileNav({
             type="button"
           >
             <Icon aria-hidden="true" size={16} />
-            {item.label}
+            <span className="truncate">{item.label}</span>
           </button>
         );
       })}
@@ -394,11 +394,11 @@ function TopCaseBar({
   liveState: "live" | "loading" | "unavailable" | "error";
 }) {
   return (
-    <header className="sticky top-0 z-20 border-b border-white/[0.07] bg-[#070c15]/92 px-5 py-4 backdrop-blur-xl lg:px-7">
-      <div className="mx-auto flex max-w-[1240px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-4 sm:gap-6">
+    <header className="sticky top-0 z-20 border-b border-white/[0.07] bg-[#070c15]/92 px-4 py-4 backdrop-blur-xl sm:px-5 lg:px-7">
+      <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex w-full min-w-0 items-center gap-4 sm:w-auto sm:gap-6">
           <button
-            className="flex h-12 min-w-0 flex-1 items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.035] px-4 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:min-w-[270px] sm:flex-none"
+            className="flex h-12 w-full min-w-0 items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.035] px-4 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:min-w-[270px] sm:flex-none"
             type="button"
           >
             <span className="flex min-w-0 items-center gap-3">
@@ -419,12 +419,12 @@ function TopCaseBar({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-4 text-sm text-slate-400 sm:justify-end">
+        <div className="hidden items-center justify-between gap-4 text-sm text-slate-400 sm:flex sm:justify-end">
           <span className="hidden sm:inline">{generatedAt}</span>
           <button className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 hover:bg-white/[0.05] hover:text-white" type="button">
             <RefreshCw aria-hidden="true" size={17} />
           </button>
-          <div className="h-8 w-px bg-white/[0.08]" />
+          <div className="hidden h-8 w-px bg-white/[0.08] sm:block" />
           <button className="relative flex h-10 w-10 items-center justify-center rounded-md text-slate-200 hover:bg-white/[0.05]" type="button">
             <Bell aria-hidden="true" size={22} />
             <span className="absolute right-1 top-0 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#5d54ff] px-1 text-xs font-semibold text-white">
@@ -958,9 +958,9 @@ function ConnectionsScreen({ model }: { model: ProductViewModel }) {
 
 function KpiStrip({ metrics }: { metrics: Array<{ label: string; value: string; helper: string; tone: StatusTone }> }) {
   return (
-    <section className="grid rounded-lg border border-white/[0.09] bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] md:grid-cols-2 xl:grid-cols-4">
+    <section className="grid min-w-0 overflow-hidden rounded-lg border border-white/[0.09] bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] md:grid-cols-2 xl:grid-cols-4">
       {metrics.map((metric, index) => (
-        <div className={clsx("min-h-[118px] p-7", index > 0 && "border-t border-white/[0.08] md:border-l md:border-t-0") } key={metric.label}>
+        <div className={clsx("min-h-[118px] min-w-0 p-7", index > 0 && "border-t border-white/[0.08] md:border-l md:border-t-0") } key={metric.label}>
           <div className="flex items-center gap-2">
             <p className="text-xs font-medium uppercase tracking-[0.04em] text-slate-500">{metric.label}</p>
             <Info aria-hidden="true" className="text-slate-500" size={15} />
@@ -981,7 +981,7 @@ function Panel({
   className?: string;
 }) {
   return (
-    <section className={clsx("rounded-lg border border-white/[0.09] bg-white/[0.035] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.035),0_20px_60px_rgba(0,0,0,0.12)]", className)}>
+    <section className={clsx("min-w-0 overflow-hidden rounded-lg border border-white/[0.09] bg-white/[0.035] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.035),0_20px_60px_rgba(0,0,0,0.12)]", className)}>
       {children}
     </section>
   );
@@ -1042,9 +1042,9 @@ function ToolbarButton({ icon: Icon, label }: { icon: ComponentType<{ size?: num
 function LiveDataBanner({ state, message }: { state: ProductViewModel["liveState"]; message: string }) {
   const isLoading = state === "loading";
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-amber-400/25 bg-amber-400/[0.07] p-4 text-sm text-amber-100">
+    <div className="flex min-w-0 max-w-full items-start gap-3 overflow-hidden rounded-lg border border-amber-400/25 bg-amber-400/[0.07] p-4 text-sm text-amber-100">
       {isLoading ? <Loader2 aria-hidden="true" className="mt-0.5 animate-spin text-amber-300" size={18} /> : <CircleAlert aria-hidden="true" className="mt-0.5 text-amber-300" size={18} />}
-      <p className="leading-6">{message}</p>
+      <p className="min-w-0 break-words leading-6">{message}</p>
     </div>
   );
 }

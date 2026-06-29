@@ -105,6 +105,35 @@ type ActionMutationState =
   | { kind: "success"; message: string }
   | { kind: "error"; message: string };
 
+type DemoIntakeState =
+  | { kind: "idle" }
+  | { kind: "pending" }
+  | { kind: "success"; message: string }
+  | { kind: "error"; message: string };
+
+type DemoIntakeApiResponse =
+  | {
+      status: "ok";
+      data: {
+        uploads: Array<unknown>;
+        agentGraph: { recommendationCount: number; checkpointKeys: string[] } | null;
+      };
+    }
+  | { status: "unavailable"; message: string; missingEnv?: string[] }
+  | { status: "error"; message: string };
+
+type ProductLiveSnapshot = {
+  caseResult: Loadable<CompanyCaseState>;
+  ingestionResult: Loadable<IngestionStatusState>;
+  runtimeResult: Loadable<Cp3ForecastCockpitState>;
+  productOverviewResult: Loadable<ProductOverviewState>;
+  productActionsResult: Loadable<ProductActionsState>;
+  productCustomersResult: Loadable<ProductCustomersState>;
+  productScenariosResult: Loadable<ProductScenariosState>;
+  productActivityResult: Loadable<ProductAgentActivityState>;
+  voiceReadinessResult: Loadable<VoiceProviderReadiness>;
+};
+
 type CustomerProfile = {
   id: string;
   name: string;
@@ -171,6 +200,7 @@ export function CashflowCockpit() {
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
   const [selectedActionDetailState, setSelectedActionDetailState] = useState<Loadable<ProductActionDetail>>({ kind: "loading" });
   const [actionMutationState, setActionMutationState] = useState<ActionMutationState>({ kind: "idle" });
+  const [demoIntakeState, setDemoIntakeState] = useState<DemoIntakeState>({ kind: "idle" });
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [scenarioToggles, setScenarioToggles] = useState<Record<ScenarioToggleKey, boolean>>({
     customerAPays: true,
@@ -182,41 +212,13 @@ export function CashflowCockpit() {
     let active = true;
 
     async function loadAll() {
-      const [
-        caseResult,
-        ingestionResult,
-        runtimeResult,
-        productOverviewResult,
-        productActionsResult,
-        productCustomersResult,
-        productScenariosResult,
-        productActivityResult,
-        voiceReadinessResult,
-      ] = await Promise.all([
-        fetchCurrentCase(),
-        fetchIngestionStatus(),
-        fetchForecastCockpit(),
-        fetchProductResource<ProductOverviewState>("/api/product/overview", "Unable to load product overview."),
-        fetchProductResource<ProductActionsState>("/api/product/actions", "Unable to load product actions."),
-        fetchProductResource<ProductCustomersState>("/api/product/customers", "Unable to load product customers."),
-        fetchProductResource<ProductScenariosState>("/api/product/scenarios", "Unable to load product scenarios."),
-        fetchProductResource<ProductAgentActivityState>("/api/product/agent-activity", "Unable to load product activity."),
-        fetchProductResource<VoiceProviderReadiness>("/api/product/voice/status", "Unable to load voice readiness."),
-      ]);
+      const snapshot = await fetchProductLiveSnapshot();
 
       if (!active) {
         return;
       }
 
-      setCaseState(caseResult);
-      setIngestionState(ingestionResult);
-      setRuntimeState(runtimeResult);
-      setProductOverviewState(productOverviewResult);
-      setProductActionsState(productActionsResult);
-      setProductCustomersState(productCustomersResult);
-      setProductScenariosState(productScenariosResult);
-      setProductActivityState(productActivityResult);
-      setVoiceReadinessState(voiceReadinessResult);
+      applyProductLiveSnapshot(snapshot);
     }
 
     void loadAll();
@@ -289,6 +291,32 @@ export function CashflowCockpit() {
     };
   }, [selectedActionId]);
 
+  const applyProductLiveSnapshot = (snapshot: ProductLiveSnapshot) => {
+    setCaseState(snapshot.caseResult);
+    setIngestionState(snapshot.ingestionResult);
+    setRuntimeState(snapshot.runtimeResult);
+    setProductOverviewState(snapshot.productOverviewResult);
+    setProductActionsState(snapshot.productActionsResult);
+    setProductCustomersState(snapshot.productCustomersResult);
+    setProductScenariosState(snapshot.productScenariosResult);
+    setProductActivityState(snapshot.productActivityResult);
+    setVoiceReadinessState(snapshot.voiceReadinessResult);
+  };
+
+  const refreshAllProductSurfaces = async () => {
+    const snapshot = await fetchProductLiveSnapshot();
+    applyProductLiveSnapshot(snapshot);
+
+    if (selectedActionId && selectedActionId !== "pending-data-action") {
+      setSelectedActionDetailState(
+        await fetchProductResource<ProductActionDetail>(
+          `/api/product/actions/${encodeURIComponent(selectedActionId)}`,
+          "Unable to refresh action detail.",
+        ),
+      );
+    }
+  };
+
   const refreshActions = async () => {
     const [actionsResult, activityResult] = await Promise.all([
       fetchProductResource<ProductActionsState>("/api/product/actions", "Unable to load product actions."),
@@ -305,6 +333,36 @@ export function CashflowCockpit() {
           "Unable to refresh action detail.",
         ),
       );
+    }
+  };
+
+  const runDemoIntake = async () => {
+    setDemoIntakeState({ kind: "pending" });
+
+    try {
+      const response = await fetch("/api/product/demo-intake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "finance_pack", process: true }),
+      });
+      const payload = (await response.json()) as DemoIntakeApiResponse;
+
+      if (payload.status !== "ok") {
+        setDemoIntakeState({ kind: "error", message: payload.message });
+        return;
+      }
+
+      await refreshAllProductSurfaces();
+      const checkpointCount = payload.data.agentGraph?.checkpointKeys.length ?? 0;
+      setDemoIntakeState({
+        kind: "success",
+        message: `Sample pack imported through the live event loop. ${payload.data.uploads.length} files processed and ${checkpointCount} agent checkpoints refreshed.`,
+      });
+    } catch (error) {
+      setDemoIntakeState({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Unable to run sample finance-pack intake.",
+      });
     }
   };
 
@@ -436,7 +494,12 @@ export function CashflowCockpit() {
           <MobileNav activeScreen={activeScreen} onScreenChange={setActiveScreen} />
           <div className="mx-auto w-full max-w-[1240px] px-4 py-5 sm:px-5 lg:px-7">
             {activeScreen === "overview" ? (
-              <OverviewScreen model={viewModel} onOpenActions={() => setActiveScreen("actions")} />
+              <OverviewScreen
+                demoIntakeState={demoIntakeState}
+                model={viewModel}
+                onOpenActions={() => setActiveScreen("actions")}
+                onRunDemoIntake={() => void runDemoIntake()}
+              />
             ) : null}
             {activeScreen === "cases" ? <CasesScreen model={viewModel} /> : null}
             {activeScreen === "actions" ? (
@@ -643,12 +706,18 @@ function TopCaseBar({
 }
 
 function OverviewScreen({
+  demoIntakeState,
   model,
   onOpenActions,
+  onRunDemoIntake,
 }: {
+  demoIntakeState: DemoIntakeState;
   model: ProductViewModel;
   onOpenActions: () => void;
+  onRunDemoIntake: () => void;
 }) {
+  const demoIntakePending = demoIntakeState.kind === "pending";
+
   return (
     <div className="space-y-5">
       <KpiStrip metrics={model.overviewMetrics} />
@@ -676,6 +745,40 @@ function OverviewScreen({
             </button>
           </div>
         </div>
+      </Panel>
+
+      <Panel className="border border-[#4e43ff]/30 bg-[#101739]/50">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-[760px]">
+            <TonePill tone="accent">Live intake</TonePill>
+            <h2 className="mt-3 text-xl font-semibold tracking-normal text-white">Start from fresh finance evidence</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Load the sample finance pack to refresh receivables, obligations, a Northstar payment event, forecasts,
+              recommendations, and Agent Activity from the server-side import path.
+            </p>
+          </div>
+          <button
+            className="flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-md bg-[#4e43ff] px-4 text-sm font-semibold text-white shadow-[0_12px_28px_rgba(78,67,255,0.24)] disabled:cursor-not-allowed disabled:opacity-55 sm:w-auto"
+            disabled={demoIntakePending}
+            onClick={onRunDemoIntake}
+            type="button"
+          >
+            {demoIntakePending ? <Loader2 aria-hidden="true" className="animate-spin" size={16} /> : <FileText aria-hidden="true" size={16} />}
+            {demoIntakePending ? "Importing sample pack" : "Load sample finance pack"}
+          </button>
+        </div>
+        {demoIntakeState.kind === "success" || demoIntakeState.kind === "error" ? (
+          <div
+            className={clsx(
+              "mt-5 rounded-md border p-3 text-sm",
+              demoIntakeState.kind === "success"
+                ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                : "border-red-400/30 bg-red-400/10 text-red-200",
+            )}
+          >
+            {demoIntakeState.message}
+          </div>
+        ) : null}
       </Panel>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.95fr)]">
@@ -2195,6 +2298,42 @@ function LiveDataMark() {
       <Info aria-hidden="true" className="text-slate-500" size={15} />
     </div>
   );
+}
+
+async function fetchProductLiveSnapshot(): Promise<ProductLiveSnapshot> {
+  const [
+    caseResult,
+    ingestionResult,
+    runtimeResult,
+    productOverviewResult,
+    productActionsResult,
+    productCustomersResult,
+    productScenariosResult,
+    productActivityResult,
+    voiceReadinessResult,
+  ] = await Promise.all([
+    fetchCurrentCase(),
+    fetchIngestionStatus(),
+    fetchForecastCockpit(),
+    fetchProductResource<ProductOverviewState>("/api/product/overview", "Unable to load product overview."),
+    fetchProductResource<ProductActionsState>("/api/product/actions", "Unable to load product actions."),
+    fetchProductResource<ProductCustomersState>("/api/product/customers", "Unable to load product customers."),
+    fetchProductResource<ProductScenariosState>("/api/product/scenarios", "Unable to load product scenarios."),
+    fetchProductResource<ProductAgentActivityState>("/api/product/agent-activity", "Unable to load product activity."),
+    fetchProductResource<VoiceProviderReadiness>("/api/product/voice/status", "Unable to load voice readiness."),
+  ]);
+
+  return {
+    caseResult,
+    ingestionResult,
+    runtimeResult,
+    productOverviewResult,
+    productActionsResult,
+    productCustomersResult,
+    productScenariosResult,
+    productActivityResult,
+    voiceReadinessResult,
+  };
 }
 
 async function fetchCurrentCase(): Promise<Loadable<CompanyCaseState>> {

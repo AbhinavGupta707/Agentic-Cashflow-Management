@@ -113,6 +113,12 @@ const routeChecks: readonly RouteCheck[] = [
     keywords: ["event", "invoice", "obligation", "payment"],
   },
   {
+    label: "CP8 demo finance-pack intake route",
+    path: "src/app/api/product/demo-intake/route.ts",
+    method: "POST",
+    keywords: ["runCp8DemoIntake", "sample pack", "event", "forecast"],
+  },
+  {
     label: "agent activity proof route",
     path: "src/app/api/product/agent-activity/route.ts",
     method: "GET",
@@ -148,7 +154,7 @@ const finalRuntimeChecks: readonly TextCheck[] = [
   {
     label: "UI exposes upload or sample-pack affordance",
     path: "src/components/cashflow-cockpit.tsx",
-    patterns: [/Upload|sample pack|sample-pack|Load sample|Import/i, /\/api\/uploads|\/api\/manual-records/i],
+    patterns: [/Upload|sample pack|sample-pack|Load sample|Import/i, /\/api\/uploads|\/api\/manual-records|\/api\/product\/demo-intake/i],
     mode: "final",
   },
   {

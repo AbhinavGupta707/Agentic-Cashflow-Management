@@ -88,6 +88,12 @@ const productRouteChecks: readonly ProductRouteCheck[] = [
     keywords: ["approval", "twilio", "provider", "providerCallId"],
   },
   {
+    label: "voice TwiML instructions",
+    path: "src/app/api/product/voice/twiml/route.ts",
+    method: "GET",
+    keywords: ["twiml", "Response", "Say", "no-store"],
+  },
+  {
     label: "voice webhook ingestion",
     path: "src/app/api/product/voice/webhooks/twilio/route.ts",
     method: "POST",
@@ -207,13 +213,14 @@ function readSupportingProductFiles(routePath: string): string {
     routeDirectory,
     resolve("src/server/repositories"),
     resolve("src/server/db"),
+    resolve("src/server/voice"),
   ];
 
   return candidateDirectories
     .filter((directory) => existsSync(directory))
     .flatMap((directory) =>
       readdirSync(directory)
-        .filter((fileName) => /product|voice|scenario|action|customer|agent/i.test(fileName))
+        .filter((fileName) => /product|voice|twiml|scenario|action|customer|agent/i.test(fileName))
         .map((fileName) => resolve(directory, fileName)),
     )
     .filter((path) => existsSync(path) && statSync(path).isFile())

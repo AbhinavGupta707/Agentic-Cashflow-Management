@@ -210,7 +210,7 @@ async function listAgentCheckpoints(
         created_at::text as created_at
       from agent_checkpoints
       where tenant_id = :tenantId
-        and agent_run_id = any(string_to_array(:agentRunIds, ',')::uuid[])
+        and agent_run_id = any(string_to_array(cast(:agentRunIds as text), ',')::uuid[])
       order by created_at desc
       limit 60
     `,

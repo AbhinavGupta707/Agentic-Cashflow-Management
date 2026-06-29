@@ -102,13 +102,18 @@ type CustomerProfile = {
 
 type ScenarioToggleKey = "customerAPays" | "partialPayment" | "supplierDeferral";
 
-const navItems: Array<{ key: ScreenKey; label: string; icon: ComponentType<{ size?: number; className?: string }> }> = [
+const navItems: Array<{
+  key: ScreenKey;
+  label: string;
+  mobileLabel?: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+}> = [
   { key: "overview", label: "Overview", icon: Home },
   { key: "cases", label: "Cases", icon: FileText },
   { key: "actions", label: "Actions", icon: CheckCircle2 },
   { key: "customers", label: "Customers", icon: UsersRound },
   { key: "forecasts", label: "Forecasts", icon: BarChart3 },
-  { key: "activity", label: "Agent Activity", icon: Activity },
+  { key: "activity", label: "Agent Activity", mobileLabel: "Activity", icon: Activity },
   { key: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -356,7 +361,7 @@ function MobileNav({
   onScreenChange: (screen: ScreenKey) => void;
 }) {
   return (
-    <nav className="grid w-full min-w-0 max-w-full grid-cols-4 gap-2 border-b border-white/[0.07] bg-[#070c15]/90 px-4 py-3 md:hidden">
+    <nav className="grid w-full min-w-0 max-w-full grid-cols-3 gap-2 border-b border-white/[0.07] bg-[#070c15]/90 px-4 py-3 md:hidden">
       {navItems.map((item) => {
         const Icon = item.icon;
         const active = activeScreen === item.key;
@@ -364,7 +369,7 @@ function MobileNav({
         return (
           <button
             className={clsx(
-              "flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-medium",
+              "flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-md border px-2 text-[11px] font-medium sm:text-xs",
               active
                 ? "border-[#6256ff]/70 bg-[#121b45] text-white"
                 : "border-white/[0.08] bg-white/[0.025] text-slate-400",
@@ -374,7 +379,7 @@ function MobileNav({
             type="button"
           >
             <Icon aria-hidden="true" size={16} />
-            <span className="truncate">{item.label}</span>
+            <span className="whitespace-nowrap">{item.mobileLabel ?? item.label}</span>
           </button>
         );
       })}

@@ -570,7 +570,7 @@ async function getCp4EmailApprovalRows(
         c.name as customer_name,
         contact.full_name as contact_full_name,
         contact.email as contact_email,
-        contact.role as contact_role,
+        contact.role_title as contact_role,
         i.external_id as invoice_external_id,
         i.invoice_number,
         approval.state as approval_state,
@@ -608,7 +608,7 @@ async function getCp4EmailApprovalRows(
       left join customers c on c.id = a.customer_id
       left join invoices i on i.id = a.invoice_id
       left join lateral (
-        select full_name, email, role
+        select full_name, email, role_title
         from contacts
         where customer_id = a.customer_id
         order by is_primary desc, created_at asc

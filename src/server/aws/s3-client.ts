@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
+import { resolveAwsCredentials } from "./credentials";
 import { type S3Config, requireS3Config } from "./s3-env";
 
 export type PutSourceObjectInput = {
@@ -25,8 +26,8 @@ export class SourceObjectStorageClient {
     this.client =
       client ??
       new S3Client({
+        credentials: resolveAwsCredentials(config),
         region: config.region,
-        // The default provider chain covers local AWS profiles and Vercel OIDC.
       });
   }
 

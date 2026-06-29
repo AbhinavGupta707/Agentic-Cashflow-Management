@@ -9,6 +9,7 @@ import {
   type SqlParameter,
 } from "@aws-sdk/client-rds-data";
 
+import { awsCredentialUnavailableMessage, resolveAwsCredentials } from "./credentials";
 import { DataApiUnavailableError, type DataApiConfig, requireDataApiConfig } from "./data-api-env";
 
 export type DataApiScalar = string | number | boolean | Date | null;
@@ -38,9 +39,8 @@ export class AuroraDataApiClient {
     this.client =
       client ??
       new AwsRdsDataClient({
+        credentials: resolveAwsCredentials(config),
         region: config.region,
-        // Intentionally do not pass explicit credentials. The AWS SDK default
-        // provider chain handles local AWS profiles and Vercel OIDC web identity.
       });
   }
 
@@ -158,7 +158,7 @@ export class AuroraDataApiClient {
         if (isAwsCredentialUnavailableException(error)) {
           throw new DataApiUnavailableError(
             [],
-            "Aurora Data API is unavailable because the local AWS session has expired. Reauthenticate before running live database operations.",
+            awsCredentialUnavailableMessage(),
           );
         }
 

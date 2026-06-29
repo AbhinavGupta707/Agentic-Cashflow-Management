@@ -61,6 +61,7 @@ Checkpoint 5/6 QA and setup details are documented in:
 
 - `docs/checkpoint-5-6-orchestration.md`
 - `docs/checkpoint-5-6-status.md`
+- `docs/live-demo-runbook.md`
 - `npm run check:cp5`
 - `npm run check:cp6`
 - `npm run smoke:voice:no-key`
@@ -150,7 +151,7 @@ For CP5/CP6, live Gmail OAuth linkage is not required. Fireworks, LangSmith,
 Twilio, ElevenLabs, and Aurora are optional live checks: missing keys, invalid
 ElevenLabs credentials, expired AWS sessions, and absent OAuth connections must
 produce honest unavailable states, not fake provider success. Live Twilio voice
-smoke requires configured Twilio env, an explicit `TWILIO_TEST_TO_PHONE`, and a
+smoke requires configured Twilio env, an explicit `TWILIO_TEST_TO_NUMBER`, and a
 recorded human approval before placing exactly one test call.
 
 CP4 Gmail env names are:

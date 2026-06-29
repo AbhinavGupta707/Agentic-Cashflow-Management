@@ -3,6 +3,7 @@ import "./load-local-env";
 import { getElevenLabsProviderStatus } from "../src/server/providers/elevenlabs";
 import { createTwilioProvider } from "../src/server/providers/twilio";
 import { getVoiceProviderReadiness } from "../src/server/voice/status";
+import { buildCashflowVoiceTwiML } from "../src/server/voice/twiml";
 
 async function main() {
   const noKeyEnv: NodeJS.ProcessEnv = {
@@ -77,6 +78,15 @@ async function main() {
   );
   assertNoFakeProviderIds(readiness);
   console.log("ok voice readiness includes provider states and approval/test-target guardrails.");
+
+  const twiml = buildCashflowVoiceTwiML({
+    summary: "Collect & confirm <payment> before payroll.",
+  });
+  assert(twiml.includes("<Response>"), "TwiML should include a Response root.");
+  assert(twiml.includes("<Say>"), "TwiML should include Say instructions.");
+  assert(twiml.includes("&amp;"), "TwiML should XML-escape ampersands.");
+  assert(twiml.includes("&lt;payment&gt;"), "TwiML should XML-escape angled text.");
+  console.log("ok Twilio TwiML callback builder returns escaped Voice XML without network calls.");
 
   console.log("Voice no-key smoke passed without Twilio or ElevenLabs network calls.");
   console.log("No fake call id, transcript id, provider execution id, or successful call outcome was produced.");

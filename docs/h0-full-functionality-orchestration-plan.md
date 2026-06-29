@@ -206,7 +206,8 @@ Fireworks or LangSmith keys.
 
 ### Checkpoint 4: Approval-Gated Email And Gmail
 
-Status: next checkpoint.
+Status: complete enough for the current H0 demo path, with Gmail live send
+remaining intentionally optional/gated.
 
 - Gmail OAuth.
 - Draft/send actions only after approval.
@@ -214,23 +215,47 @@ Status: next checkpoint.
 
 ### Checkpoint 5: Voice Execution And Outcome Learning
 
+Status: integrated with Twilio-first execution readiness, approval/test-target
+guardrails, and safe no-key behavior. ElevenLabs remains optional unless
+explicitly enabled and verified.
+
 - Approval-gated ElevenLabs/Twilio calls.
 - Store call metadata and transcripts safely.
 - Extract memory facts from transcripts.
 
-### Checkpoint 6: Live Cockpit Replacement
+### Checkpoint 6: Live Product Cockpit
 
-- Replace static dashboard data with Aurora-backed APIs.
-- Show causal evidence, forecasts, actions, approvals, provider logs, and memory.
+Status: integrated as a polished product shell backed by `/api/product/*`
+routes, but not yet fully wired as an end-to-end clickable demo workflow.
 
-### Checkpoint 7: Production Hardening
+- Reference-style Overview, Actions, Customers, Forecasts, Agent Activity, and
+  Settings screens.
+- Aurora-backed product APIs.
+- Provider readiness surfaces.
+- Browser QA against production.
+
+### Checkpoint 7: Live Demo Workflow Integration
+
+Status: planned in `docs/checkpoint-7-live-demo-workflow-orchestration.md`.
+
+This checkpoint closes the current gap between backend capability and
+judge-facing product interaction:
+
+- fetch selected action detail and show Fireworks-generated previews
+- wire approve, edit, and reject controls
+- remove hardcoded stale forecast dates
+- make Agent Activity show persisted timeline evidence
+- add a clearer Overview risk narrative
+- update demo/runbook evidence after browser QA
+
+### Checkpoint 8: Production Hardening
 
 - Vercel Cron.
 - OIDC role/env completion.
 - Security and privacy review.
 - Budget/resource cleanup docs.
 
-### Checkpoint 8: End-To-End Demo And Submission
+### Checkpoint 9: End-To-End Demo And Submission
 
 - Full live loop from ingestion to approved action to learned outcome.
 - Architecture diagram, AWS DB screenshot, Vercel link/team ID, and demo video script.

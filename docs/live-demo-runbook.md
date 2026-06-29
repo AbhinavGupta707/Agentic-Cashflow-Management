@@ -21,6 +21,16 @@ Live and wired:
 - Twilio webhook ingestion at `/api/product/voice/webhooks/twilio`.
 - Customer, forecast, actions, overview, and agent activity product APIs.
 
+Pre-Checkpoint 7 caveat:
+
+- The backend action-detail route can generate a Fireworks preview when called
+  directly, but the browser UI still needs to fetch selected action detail and
+  wire Approve/Edit/Reject controls before the walkthrough can be treated as a
+  complete clickable product flow.
+- Forecast and Agent Activity screens still need one integration pass to remove
+  stale static labels and show persisted timeline evidence as the primary
+  user-facing story.
+
 Intentionally gated:
 
 - Gmail does not need to be connected for the hackathon walkthrough. The app

@@ -16,6 +16,7 @@ import type {
 } from "../db/cp4-communication-contract";
 import { scopedIdempotencyKey, stableHash } from "../ingestion/idempotency";
 import {
+  createDefaultGmailProviderAdapter,
   getEffectiveGmailStatus,
   type GmailProviderAdapter,
   unavailableGmailSendResult,
@@ -29,6 +30,7 @@ type RepositoryOptions = {
 
 type RuntimeOptions = RepositoryOptions & {
   gmailAdapter?: GmailProviderAdapter | null;
+  gmailFetch?: typeof fetch;
   env?: NodeJS.ProcessEnv;
 };
 
@@ -157,7 +159,8 @@ export async function getCp4CommunicationState(
 ): Promise<Cp4CommunicationState> {
   const dataApi = await resolveDataApi(options);
   const scope = await resolveCompanyScope(dataApi, options);
-  const provider = await getEffectiveGmailStatus(options.env, options.gmailAdapter);
+  const gmailAdapter = resolveGmailAdapter(scope, options, dataApi);
+  const provider = await getEffectiveGmailStatus(options.env, gmailAdapter);
 
   const [drafts, approvals, messages, providerExecutions] = await Promise.all([
     listDrafts(dataApi, scope.company_id, options.caseId),
@@ -188,6 +191,7 @@ export async function createInternalCommunicationDraft(
 ): Promise<Cp4CreateDraftResult> {
   const dataApi = await resolveDataApi(options);
   const scope = await resolveCompanyScope(dataApi, options);
+  const gmailAdapter = resolveGmailAdapter(scope, options, dataApi);
   const action = await findActionContext(dataApi, scope, options.caseId, input);
   const draftContent = draftContentFromAction(action);
   const idempotencyKey =
@@ -285,7 +289,7 @@ export async function createInternalCommunicationDraft(
   return {
     draft: normalizeDraft(draft),
     approval: action.approval_id ? normalizeApproval(actionToApprovalRow(action)) : null,
-    provider: await getEffectiveGmailStatus(options.env, options.gmailAdapter),
+    provider: await getEffectiveGmailStatus(options.env, gmailAdapter),
   };
 }
 
@@ -427,10 +431,11 @@ export async function sendApprovedCommunicationDraft(
 ): Promise<Cp4SendResult> {
   const dataApi = await resolveDataApi(options);
   const scope = await resolveCompanyScope(dataApi, options);
+  const gmailAdapter = resolveGmailAdapter(scope, options, dataApi);
   const draft = await findDraftForSend(dataApi, scope, options.caseId, input);
 
   if (!draft) {
-    const provider = await getEffectiveGmailStatus(options.env, options.gmailAdapter);
+    const provider = await getEffectiveGmailStatus(options.env, gmailAdapter);
     return {
       state: "draft_unavailable",
       message: "No email draft is available for this CP4 send request.",
@@ -443,7 +448,7 @@ export async function sendApprovedCommunicationDraft(
   }
 
   const approval = await getApprovalForAction(dataApi, scope.tenant_id, draft.actionId);
-  const provider = await getEffectiveGmailStatus(options.env, options.gmailAdapter);
+  const provider = await getEffectiveGmailStatus(options.env, gmailAdapter);
   const approvalBlock = approvalGateBlock(approval);
 
   if (approvalBlock) {
@@ -507,8 +512,8 @@ export async function sendApprovedCommunicationDraft(
 
   const sendIdempotencyKey = input.idempotencyKey ?? scopedIdempotencyKey(["cp4", "send", draft.id]);
   const providerResult =
-    provider.status === "available" && options.gmailAdapter
-      ? await options.gmailAdapter.sendEmail({
+    provider.status === "available"
+      ? await gmailAdapter.sendEmail({
           tenantId: scope.tenant_id,
           draftId: draft.id,
           actionId: requireValue(draft.actionId, "Draft is not linked to an action."),
@@ -725,6 +730,22 @@ export async function sendApprovedCommunicationDraft(
     await dataApi.rollbackTransaction(transactionId);
     throw error;
   }
+}
+
+function resolveGmailAdapter(
+  scope: CompanyScopeRow,
+  options: RuntimeOptions,
+  dataApi: AuroraDataApiClient,
+): GmailProviderAdapter {
+  return (
+    options.gmailAdapter ??
+    createDefaultGmailProviderAdapter({
+      tenantId: scope.tenant_id,
+      env: options.env,
+      dataApi,
+      fetchImpl: options.gmailFetch,
+    })
+  );
 }
 
 async function resolveDataApi(options: RepositoryOptions): Promise<AuroraDataApiClient> {

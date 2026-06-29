@@ -1,4 +1,5 @@
 import type { ProviderStatus } from "../db/provider-status-contract";
+import type { AuroraDataApiClient } from "../aws/rds-data-api";
 import { getDataApiAvailability } from "../aws/data-api-env";
 import {
   getLatestGmailProviderConnection,
@@ -24,6 +25,7 @@ export type GmailProviderExecutionResult = {
 export type GmailProviderStatusInput = {
   tenantId?: string;
   env?: NodeJS.ProcessEnv;
+  dataApi?: AuroraDataApiClient;
   dataApiConnection?: ProviderConnectionRecord | null;
 };
 
@@ -53,7 +55,7 @@ export async function getGmailProviderStatus(input: GmailProviderStatusInput = {
   }
 
   const dataApiAvailability = getDataApiAvailability(input.env);
-  if (!dataApiAvailability.available && input.dataApiConnection === undefined) {
+  if (!dataApiAvailability.available && input.dataApiConnection === undefined && !input.dataApi) {
     return {
       provider: "gmail",
       status: "unavailable",
@@ -70,7 +72,7 @@ export async function getGmailProviderStatus(input: GmailProviderStatusInput = {
   const connection =
     input.dataApiConnection !== undefined
       ? input.dataApiConnection
-      : await getLatestGmailProviderConnection({ tenantId: input.tenantId });
+      : await getLatestGmailProviderConnection({ tenantId: input.tenantId }, input.dataApi);
 
   if (!hasUsableGmailTokens(connection)) {
     return noTokenStatus("No connected Gmail OAuth token is stored for this tenant.", now);

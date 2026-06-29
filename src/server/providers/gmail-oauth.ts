@@ -135,3 +135,51 @@ export async function exchangeGmailAuthorizationCode(
     rawScope: payload.scope,
   };
 }
+
+export async function refreshGmailAccessToken(
+  input: {
+    refreshToken: string;
+    config: GmailConfig;
+    fetchImpl?: typeof fetch;
+  },
+): Promise<GmailTokenExchangeResult> {
+  const response = await (input.fetchImpl ?? fetch)(GMAIL_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      refresh_token: input.refreshToken,
+      client_id: input.config.clientId,
+      client_secret: input.config.clientSecret,
+      grant_type: "refresh_token",
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google OAuth token refresh failed with HTTP ${response.status}.`);
+  }
+
+  const payload = (await response.json()) as {
+    access_token?: string;
+    expires_in?: number;
+    token_type?: string;
+    scope?: string;
+  };
+
+  if (!payload.access_token) {
+    throw new Error("Google OAuth refresh did not return an access token.");
+  }
+
+  const now = Date.now();
+
+  return {
+    accessToken: payload.access_token,
+    tokenType: payload.token_type,
+    expiresAt:
+      typeof payload.expires_in === "number" ? new Date(now + payload.expires_in * 1000).toISOString() : undefined,
+    scope: payload.scope,
+    rawScope: payload.scope,
+  };
+}

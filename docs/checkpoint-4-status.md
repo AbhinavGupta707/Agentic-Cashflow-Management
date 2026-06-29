@@ -4,17 +4,18 @@ Date: 2026-06-29
 
 Checkpoint: Approval-Gated Email And Gmail
 
-Status: QA/docs lane prepared on `codex/cp4-qa-docs-smoke`. This lane adds
-offline CP4 contract checks, Gmail no-key smoke guidance, live Gmail smoke
-instructions for later credentials, browser smoke coverage, and CP5 handoff
-notes. It does not implement production Gmail provider runtime logic.
+Status: CP4 worker lanes have been merged into `main`, and the master
+integration pass wired the Gmail provider backend into the approval-gated
+runtime. Offline/no-key verification passes. Live Aurora/Gmail verification is
+blocked until the local AWS session is reauthenticated and Google/Gmail
+credentials plus a test recipient are configured.
 
 ## Scope
 
 Checkpoint 4 turns CP3 approval-ready actions and communication drafts into
 approval-gated Gmail execution.
 
-This QA/docs lane owns:
+This runbook covers:
 
 - offline schema contract checks for approvals, drafts, messages, provider
   executions, and optional provider connection schema
@@ -26,9 +27,9 @@ This QA/docs lane owns:
 - browser smoke checklist for approval, draft, send, provider, reply/outcome,
   console, and API health
 - guardrails and CP5 handoff notes
-
-This lane does not own production Gmail OAuth, provider adapters, runtime send
-routes, cockpit UI implementation, voice execution, or future checkpoint work.
+- production Gmail OAuth/provider behavior now merged in CP4
+- the default Gmail runtime adapter that uses encrypted provider tokens and
+  refreshes access tokens before send when needed
 
 ## Official Gmail And OAuth Docs Reviewed
 
@@ -97,9 +98,8 @@ Run:
 npm run check:cp4
 ```
 
-The check is deterministic and safe without provider keys. It reads
-`db/migrations/0001_core_cash_management_schema.sql`, inspects process env, and
-does not call Aurora or Gmail.
+The check is deterministic and safe without provider keys. It reads the Aurora
+migration files, inspects process env, and does not call Aurora or Gmail.
 
 It verifies the current Aurora migration contains:
 
@@ -114,9 +114,9 @@ It verifies the current Aurora migration contains:
 - `provider_executions` with action/draft/message links, operation payloads,
   provider execution IDs, retry/error fields, execution states, provider
   uniqueness, and tenant-scoped idempotency
-- `provider_connections` checks only if such a schema is present in the
-  migration; absence is reported as pending provider-backend work rather than a
-  failure
+- `provider_connections` with Gmail-only provider/state constraints, encrypted
+  token fields, connection metadata, tenant/account uniqueness, and safe
+  rollback coverage
 
 The check also reports missing Aurora/Gmail env as unavailable state, rejects
 configured broad Gmail scopes, and detects plaintext Google/Gmail token-like env
@@ -128,6 +128,7 @@ Run:
 
 ```bash
 npm run smoke:gmail:no-key
+npm run smoke:cp4:runtime:no-key
 ```
 
 Expected no-key result:
@@ -139,6 +140,9 @@ Expected no-key result:
 - no fake Gmail draft ID, message ID, provider execution ID, reply, or delivery
   outcome is produced
 - internal approval/draft workflows should remain testable without Gmail keys
+- with encrypted stored tokens and a mocked Gmail API, the approval runtime
+  automatically uses the default Gmail adapter without requiring an injected
+  test adapter
 
 With an approved action but no Gmail keys or stored OAuth tokens, CP4 runtime
 lanes should persist or return an honest unavailable/failed provider execution.
@@ -219,18 +223,42 @@ npm run forecast:dry
 npm run smoke:agent:no-key
 npm run agent:smoke
 npm run smoke:gmail:no-key
+npm run smoke:cp4:runtime:no-key
 git diff --check
 rg -n -e 'Runway''Ops' -e 'external''-legacy-repo-placeholder' -e 'mongo''db\+srv' -e 'Mongo''DB' -e 'MONGO''DB' -e 'mongo''db' src scripts db package.json README.md docs/checkpoint-4*.md docs/schema.md
 ```
 
-This QA/docs lane specifically verified:
+## Current Verification
+
+Verified on 2026-06-29 after CP4 integration:
 
 ```bash
+npm run typecheck
+npm run check:cp2
+npm run check:cp3
 npm run check:cp4
 npm run smoke:gmail:no-key
+npm run smoke:cp4:runtime:no-key
+npm run smoke:agent:no-key
+npm run build
+npm run db:migrate:dry
+npm run db:seed:dry
+npm run forecast:dry
 ```
 
-Both commands passed after dependencies were installed.
+Live checks that require Aurora currently stop before product assertions because
+the local AWS session is expired:
+
+```text
+Your session has expired. Please reauthenticate.
+```
+
+Affected commands:
+
+- `npm run db:check-data-api`
+- `npm run forecast:smoke`
+- `npm run agent:smoke`
+- `npm run smoke:cp4:approval-gate`
 
 ## Guardrails
 

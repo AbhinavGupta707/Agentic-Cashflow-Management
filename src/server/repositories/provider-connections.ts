@@ -173,6 +173,70 @@ export async function upsertGmailProviderConnection(
   return normalizeProviderConnection(requireRow(row, "upsert Gmail provider connection"));
 }
 
+export async function updateGmailProviderConnectionTokens(
+  input: {
+    connectionId: string;
+    tokenSet: GmailTokenSet;
+    encryptionKey: string;
+    metadata?: unknown;
+  },
+  dataApi: AuroraDataApiClient = createProviderConnectionDataApi(),
+): Promise<ProviderConnectionRecord> {
+  const encryptedAccessToken = input.tokenSet.accessToken
+    ? encryptGmailToken(input.tokenSet.accessToken, input.encryptionKey)
+    : null;
+  const encryptedRefreshToken = input.tokenSet.refreshToken
+    ? encryptGmailToken(input.tokenSet.refreshToken, input.encryptionKey)
+    : null;
+
+  if (!encryptedAccessToken && !encryptedRefreshToken) {
+    throw new Error("Gmail token refresh did not return tokens to persist.");
+  }
+
+  const [row] = await dataApi.execute<ProviderConnectionRow>(
+    `
+      update provider_connections
+      set
+        encrypted_access_token = coalesce(:encryptedAccessToken, encrypted_access_token),
+        encrypted_refresh_token = coalesce(:encryptedRefreshToken, encrypted_refresh_token),
+        token_type = coalesce(:tokenType, token_type),
+        token_expires_at = coalesce(:tokenExpiresAt, token_expires_at),
+        state = 'connected',
+        last_error = null,
+        metadata = metadata || :metadata,
+        updated_at = now()
+      where id = :connectionId
+        and provider = 'gmail'
+      returning
+        id,
+        tenant_id,
+        provider,
+        account_email,
+        account_subject,
+        scopes,
+        encrypted_access_token,
+        encrypted_refresh_token,
+        token_type,
+        token_expires_at::text,
+        state,
+        last_error,
+        metadata,
+        created_at::text,
+        updated_at::text
+    `,
+    {
+      connectionId: input.connectionId,
+      encryptedAccessToken,
+      encryptedRefreshToken,
+      tokenType: input.tokenSet.tokenType ?? null,
+      tokenExpiresAt: input.tokenSet.expiresAt ?? null,
+      metadata: jsonParam(input.metadata ?? {}),
+    },
+  );
+
+  return normalizeProviderConnection(requireRow(row, "update Gmail provider tokens"));
+}
+
 export function hasUsableGmailTokens(connection: ProviderConnectionRecord | null): boolean {
   return Boolean(
     connection &&

@@ -14,7 +14,7 @@ export type Cp4SendState =
 export type Cp4GmailStatus = {
   provider: "gmail";
   status: "available" | "unavailable";
-  reason: "configured" | "no-key" | "no-token" | "adapter-missing" | "provider-error";
+  reason: "configured" | "missing-config" | "no-key" | "no-token" | "adapter-missing" | "provider-error";
   message: string;
   missingEnv: string[];
   checkedAt: string;

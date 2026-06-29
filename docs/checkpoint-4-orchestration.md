@@ -4,8 +4,9 @@ Date: 2026-06-29
 
 Checkpoint: Approval-Gated Email And Gmail
 
-Status: Ready to launch from `main` at commit `35c3c04` after CP3 was merged,
-verified, pushed, and the CP3 worker lanes were archived.
+Status: CP4 lanes have been launched, merged, and integrated on `main`.
+Offline/no-key verification passes. Live Aurora/Gmail verification is blocked
+only by the expired local AWS session and missing Google/Gmail credentials.
 
 ## Product Outcome
 
@@ -76,6 +77,12 @@ The provider backend lane adds:
 - `npm run smoke:gmail:no-key` for deterministic no-key/config checks with no
   Gmail network calls.
 
+The master integration pass also wires the default Gmail provider adapter into
+the CP4 communication runtime. After Google/Gmail env is present and a tenant
+has an encrypted `provider_connections` row, approved sends use Gmail's
+base64url MIME send endpoint and refresh an access token from the encrypted
+refresh token when needed.
+
 Default Gmail scope is `https://www.googleapis.com/auth/gmail.compose`, which
 supports draft create/update/send workflows. Set `GOOGLE_GMAIL_SCOPES` only if a
 later workflow intentionally changes that scope contract.
@@ -92,6 +99,10 @@ later workflow intentionally changes that scope contract.
 Do not create recurring Codex automations. Do not create orchestration or review
 threads. These four task-lane worktree sessions are the only CP4 worker sessions
 for this checkpoint.
+
+The single master orchestration thread owns merge review, integration fixes,
+verification, push, and worker cleanup. Completed worker lanes should be
+archived after the merged state is verified.
 
 ## Launched Worker Sessions
 
@@ -112,7 +123,8 @@ The QA/docs lane provides:
   schema checks
 - `npm run smoke:gmail:no-key` for deterministic Gmail provider no-key posture
 - `npm run smoke:cp4:runtime:no-key` for deterministic approval-gate and
-  provider-unavailable runtime behavior
+  provider-unavailable runtime behavior, including the automatically registered
+  default Gmail adapter with encrypted mock tokens and a mocked Gmail API call
 - `docs/checkpoint-4-status.md` for runbook, browser smoke, live Gmail smoke,
   guardrails, and CP5 handoff
 
@@ -144,6 +156,7 @@ npm run forecast:dry
 npm run smoke:agent:no-key
 npm run agent:smoke
 npm run smoke:gmail:no-key
+npm run smoke:cp4:runtime:no-key
 git diff --check
 rg -n -e 'Runway''Ops' -e 'external''-legacy-repo-placeholder' -e 'mongo''db\+srv' -e 'Mongo''DB' -e 'MONGO''DB' -e 'mongo''db' src scripts db package.json README.md docs/checkpoint-4*.md docs/schema.md
 ```
@@ -161,6 +174,15 @@ Additional CP4 checks:
   recipient; do not run that live smoke until credentials and destination are
   explicit.
 - Browser smoke must show approval/draft/send state and no console errors.
+
+## Integration Finding
+
+The four worker lanes were clean individually, but their first merged state left
+the approval runtime dependent on an injected Gmail adapter. That meant a
+post-key deployment could still report `adapter-missing` instead of using the
+stored OAuth connection. The master integration pass fixed this by registering a
+default adapter from the tenant scope, Data API client, Gmail env, encrypted
+provider tokens, and Gmail send client.
 
 ## Non-Goals
 

@@ -4,6 +4,7 @@ import "./load-local-env";
 
 import type { AuroraDataApiClient } from "../src/server/aws/rds-data-api";
 import { getGmailRuntimeStatus, type GmailProviderAdapter } from "../src/server/communication/gmail-runtime";
+import { encryptGmailToken } from "../src/server/providers/gmail-tokens";
 import { Cp4ApprovalGateError, sendApprovedCommunicationDraft } from "../src/server/repositories/cp4-communication";
 
 const TENANT_ID = "00000000-0000-4000-8000-000000000001";
@@ -121,11 +122,54 @@ async function main() {
   assert.equal(adapterDb.messageWrites, 1);
   assert.equal(adapterDb.providerExecutionWrites, 1);
 
+  const defaultAdapterDb = new FakeCp4DataApi("approved", {
+    providerConnection: true,
+    encryptionKey: adapterEnv.GMAIL_ENCRYPTION_KEY!,
+  });
+  let gmailFetchCalls = 0;
+  const defaultAdapterResult = await sendApprovedCommunicationDraft(
+    {
+      draftId: DRAFT_ID,
+      idempotencyKey: "cp4:default-adapter-smoke",
+    },
+    {
+      dataApi: defaultAdapterDb.client,
+      companyExternalId: "cmp_marlow_finch",
+      caseId: "case_payroll_2026_05_08",
+      env: {
+        ...adapterEnv,
+        GMAIL_SENDER_EMAIL: "sender@example.test",
+      },
+      gmailFetch: (async (url, init) => {
+        gmailFetchCalls += 1;
+        assert.equal(String(url), "https://gmail.googleapis.com/gmail/v1/users/me/messages/send");
+        assert.equal((init?.headers as Record<string, string>).authorization, "Bearer test-access-token");
+        const body = JSON.parse(String(init?.body)) as { raw?: string };
+        assert.ok(body.raw, "Gmail send payload should include a raw RFC 2822 message.");
+        return {
+          ok: true,
+          json: async () => ({
+            id: "gmail-default-message-123",
+            threadId: "gmail-default-thread-123",
+          }),
+        } as Response;
+      }) as typeof fetch,
+    },
+  );
+
+  assert.equal(defaultAdapterResult.state, "sent");
+  assert.equal(defaultAdapterResult.communicationMessage?.providerMessageId, "gmail-default-message-123");
+  assert.equal(defaultAdapterDb.providerConnectionReads, 2);
+  assert.equal(defaultAdapterDb.messageWrites, 1);
+  assert.equal(defaultAdapterDb.providerExecutionWrites, 1);
+  assert.equal(gmailFetchCalls, 1);
+
   console.log("Gmail no-key/runtime smoke passed.");
   console.log(`No-key status: ${noKeyStatus.status} (${noKeyStatus.reason})`);
   console.log("Approval gate blocked pending approval before provider execution.");
   console.log("Approved no-key send wrote failed provider execution without a sent message.");
   console.log("Configured adapter path wrote one sent communication message with a real provider id.");
+  console.log("Default Gmail adapter path used encrypted tokens and the Gmail send endpoint.");
 }
 
 type ApprovalState = "pending" | "approved";
@@ -141,9 +185,16 @@ class FakeCp4DataApi {
 
   messageWrites = 0;
   providerExecutionWrites = 0;
+  providerConnectionReads = 0;
   auditWrites = 0;
 
-  constructor(private readonly approvalState: ApprovalState) {}
+  constructor(
+    private readonly approvalState: ApprovalState,
+    private readonly options: {
+      providerConnection?: boolean;
+      encryptionKey?: string;
+    } = {},
+  ) {}
 
   async execute<T extends Record<string, unknown>>(
     sql: string,
@@ -161,9 +212,16 @@ class FakeCp4DataApi {
       return [approvalRow(this.approvalState) as unknown as T];
     }
 
+    if (sql.includes("from provider_connections")) {
+      this.providerConnectionReads += 1;
+      return this.options.providerConnection
+        ? [providerConnectionRow(this.options.encryptionKey ?? "fake-encryption-key") as unknown as T]
+        : [];
+    }
+
     if (sql.includes("insert into communication_messages")) {
       this.messageWrites += 1;
-      return [messageRow() as unknown as T];
+      return [messageRow(String(params.providerMessageId ?? "gmail-message-123")) as unknown as T];
     }
 
     if (sql.includes("insert into provider_executions")) {
@@ -238,7 +296,27 @@ function approvalRow(state: ApprovalState) {
   };
 }
 
-function messageRow() {
+function providerConnectionRow(encryptionKey: string) {
+  return {
+    id: "00000000-0000-4000-8000-000000000010",
+    tenant_id: TENANT_ID,
+    provider: "gmail",
+    account_email: "sender@example.test",
+    account_subject: "gmail-subject-123",
+    scopes: ["https://www.googleapis.com/auth/gmail.compose"],
+    encrypted_access_token: encryptGmailToken("test-access-token", encryptionKey),
+    encrypted_refresh_token: encryptGmailToken("test-refresh-token", encryptionKey),
+    token_type: "Bearer",
+    token_expires_at: "2099-01-01 00:00:00",
+    state: "connected",
+    last_error: null,
+    metadata: {},
+    created_at: "2026-06-29 10:00:00",
+    updated_at: "2026-06-29 10:00:00",
+  };
+}
+
+function messageRow(providerMessageId = "gmail-message-123") {
   return {
     id: MESSAGE_ID,
     draft_id: DRAFT_ID,
@@ -250,7 +328,7 @@ function messageRow() {
     channel: "email",
     direction: "outbound",
     provider: "gmail",
-    provider_message_id: "gmail-message-123",
+    provider_message_id: providerMessageId,
     subject: "Payment follow-up",
     state: "sent",
     sent_at: "2026-06-29 10:02:00",

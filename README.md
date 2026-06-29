@@ -21,9 +21,14 @@ Checkpoint 0 setup is documented in:
 - `docs/checkpoint-0-setup.md`
 - `docs/h0-full-functionality-orchestration-plan.md`
 
-Checkpoint 1 should scaffold the app and implement the Aurora foundation from this clean repository.
+Checkpoint 1 is integrated in this repository:
 
-Checkpoint 1 QA and setup contracts are documented in:
+- Next.js App Router cockpit shell
+- Aurora PostgreSQL schema and migration runner
+- RDS Data API client, repository read path, API route, demo seed, and smoke script
+- QA runbook and no-key provider states
+
+Checkpoint 1 QA and setup details are documented in:
 
 - `docs/checkpoint-1-status.md`
 
@@ -37,24 +42,25 @@ cd Agentic-Cashflow-Management
 cp .env.example .env.local
 ```
 
-Checkpoint 1 is expected to provide a Next.js App Router scaffold. After the app
-lane lands, install dependencies and run the local app with:
+Install dependencies and run the local app with:
 
 ```bash
 npm install
 npm run dev
 ```
 
-The local app should use `.env.local`. Keep secrets out of Git. Production
+The local app and repository scripts load `.env.local`. Keep secrets out of Git. Production
 runtime variables belong in the Vercel project `agentic-cashflow-management`.
 
 ## Checkpoint 1 Verification Contract
 
-After all checkpoint 1 lanes are integrated, the repository should support:
+Checkpoint 1 supports:
 
 ```bash
 npm run typecheck
 npm run build
+npm run db:migrate:dry
+npm run db:seed:dry
 npm run db:migrate
 npm run db:seed
 npm run smoke

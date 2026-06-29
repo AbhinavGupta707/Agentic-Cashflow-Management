@@ -5,9 +5,8 @@ Date: 2026-06-29
 Checkpoint: App Scaffold, Aurora Foundation, And Data Model
 
 This document records the checkpoint 1 setup, verification, and smoke-test
-contracts for the canonical Agentic Cashflow Management repository. It is
-written before all implementation lanes have landed, so command names below are
-the contracts checkpoint 1 should satisfy after integration.
+status for the canonical Agentic Cashflow Management repository after lane
+integration.
 
 ## Repository Boundary
 
@@ -31,7 +30,7 @@ cp .env.example .env.local
 npm install
 ```
 
-Expected checkpoint 1 local commands after the app scaffold lands:
+Expected checkpoint 1 local commands:
 
 ```bash
 npm run dev
@@ -82,7 +81,10 @@ AWS_ROLE_ARN=arn:aws:iam::222634407676:role/h0-cash-management-vercel-runtime-ro
 
 The Aurora app-user secret exists in AWS Secrets Manager and is configured in
 Vercel production as `AURORA_SECRET_ARN`. Local `.env.local` may leave it blank
-unless the developer is intentionally running live Aurora commands.
+unless the developer is intentionally running live Aurora commands. Local scripts
+load `.env.local` and `.env` automatically. `AWS_ROLE_ARN` is configured in
+production for Vercel OIDC, but local AWS CLI/SSO credentials can work without
+that variable.
 
 Provider env names reserved for later checkpoints:
 
@@ -117,6 +119,8 @@ for build, migration, seed, or read-only Aurora smoke tests.
 Checkpoint 1 should provide scripts with these behaviors:
 
 ```bash
+npm run db:migrate:dry
+npm run db:seed:dry
 npm run db:migrate
 npm run db:seed
 npm run smoke
@@ -127,6 +131,7 @@ Expected migration behavior:
 - Uses Aurora PostgreSQL through the RDS Data API.
 - Reads `AWS_REGION`, `AURORA_CLUSTER_ARN`, `AURORA_SECRET_ARN`, and
   `AURORA_DATABASE`.
+- `npm run db:migrate:dry` parses and checksums SQL without requiring AWS env.
 - Retries `DatabaseResumingException` with bounded backoff because Aurora can
   resume from 0 ACU.
 - Creates or validates extensions required by checkpoint 1 schema:
@@ -188,11 +193,13 @@ Run after all checkpoint 1 lanes are merged:
 npm install
 npm run typecheck
 npm run build
+npm run db:migrate:dry
+npm run db:seed:dry
 npm run db:migrate
 npm run db:seed
 npm run smoke
 git diff --check
-rg -n "MongoDB|MONGODB" .
+rg -n "RunwayOps|runwayops|mongodb\\+srv|MongoDB|MONGODB|mongodb" src scripts db package.json README.md
 ```
 
 Passing criteria:
@@ -227,14 +234,14 @@ Checkpoint 1 manual smoke should not require:
 
 ## Current Lane Status
 
-QA/docs lane status:
+Integrated status:
 
-- Fresh clone setup documented.
-- Local and Vercel production env names documented.
-- Migration, seed, build, and smoke-test contracts documented.
-- No-key and missing provider states documented.
-- Checkpoint 1 acceptance checks and manual smoke boundaries documented.
-
-Implementation status is intentionally not claimed here. App, schema, migration,
-seed, and API behavior become authoritative only after their owning lanes land
-and integration verification is run.
+- Lane A, B, C, and D branches are merged into `main`.
+- The cockpit shell calls `/api/current-case` instead of rendering only static fixtures.
+- Aurora schema includes tenant-scoped external IDs for deterministic demo upserts.
+- Demo seed writes tenant, company, cash account, source/import provenance, customers, contacts, invoices, obligations, forecast points, action approvals, and memory facts.
+- Repository scripts load `.env.local` automatically.
+- Verified in the orchestration shell: `npm install`, `npm run typecheck`, `npm run build`, `npm run db:migrate:dry-run`, `npm run db:seed:dry-run`, and `git diff --check` all passed.
+- `npm run db:check-data-api` and `npm run smoke` both stop with a clear missing-env error until `AWS_REGION`, `AURORA_CLUSTER_ARN`, `AURORA_SECRET_ARN`, and `AURORA_DATABASE` are provided.
+- Runtime denylist scan `rg -n "RunwayOps|runwayops|mongodb\\+srv|MongoDB|MONGODB|mongodb" src scripts db package.json README.md` returned no matches.
+- Checkpoint 2 remains paused until live `db:migrate`, `db:seed`, and `smoke` are run and recorded.

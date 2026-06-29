@@ -1,3 +1,5 @@
+import "./load-local-env";
+
 type RequiredEnv = {
   name: string;
   secret: boolean;

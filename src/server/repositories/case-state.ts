@@ -200,12 +200,14 @@ export async function getCurrentCaseState(
     `
       select
         c.external_id,
-        c.name,
+        coalesce(c.trading_name, c.legal_name) as name,
         c.industry,
         c.base_currency,
-        c.cash_balance_cents
+        coalesce(round(sum(coalesce(ca.current_balance, 0)) * 100), 0)::bigint as cash_balance_cents
       from companies c
+      left join cash_accounts ca on ca.company_id = c.id and ca.state = 'active'
       where c.external_id = :companyExternalId
+      group by c.id
       limit 1
     `,
     params,
@@ -221,21 +223,23 @@ export async function getCurrentCaseState(
         select
           c.external_id,
           c.name,
-          c.segment,
+          c.metadata->>'segment' as segment,
           c.payment_terms_days,
-          c.risk_score,
+          nullif(coalesce(c.metadata->>'risk_score', c.metadata->>'riskScore'), '')::integer as risk_score,
           primary_contact.full_name as contact_full_name,
           primary_contact.email as contact_email,
-          primary_contact.role as contact_role
+          primary_contact.role_title as contact_role
         from customers c
         left join lateral (
-          select full_name, email, role
+          select full_name, email, role_title
           from contacts
           where customer_id = c.id
-          order by created_at asc
+          order by is_primary desc, created_at asc
           limit 1
         ) primary_contact on true
-        where c.company_id = (select id from companies where external_id = :companyExternalId)
+        where c.company_id = (
+          select id from companies where external_id = :companyExternalId limit 1
+        )
         order by c.name asc
       `,
       params,
@@ -248,15 +252,17 @@ export async function getCurrentCaseState(
           c.external_id as customer_external_id,
           c.name as customer_name,
           i.due_date::text as due_date,
-          i.currency,
-          i.amount_cents,
-          i.amount_paid_cents,
-          i.amount_cents - i.amount_paid_cents as outstanding_cents,
-          i.status,
-          i.description
+          i.currency_code as currency,
+          round(i.amount_total * 100)::bigint as amount_cents,
+          round(i.amount_paid * 100)::bigint as amount_paid_cents,
+          round(i.amount_due * 100)::bigint as outstanding_cents,
+          i.state as status,
+          i.metadata->>'description' as description
         from invoices i
         join customers c on c.id = i.customer_id
-        where i.company_id = (select id from companies where external_id = :companyExternalId)
+        where i.company_id = (
+          select id from companies where external_id = :companyExternalId limit 1
+        )
         order by i.due_date asc, i.invoice_number asc
       `,
       params,
@@ -264,17 +270,19 @@ export async function getCurrentCaseState(
     dataApi.execute<ObligationRow>(
       `
         select
-          external_id,
-          title,
-          vendor_name,
+          coalesce(external_id, metadata->>'externalId', idempotency_key) as external_id,
+          coalesce(metadata->>'title', counterparty_name) as title,
+          counterparty_name as vendor_name,
           category,
           due_date::text as due_date,
-          currency,
-          amount_cents,
-          status,
-          priority
+          currency_code as currency,
+          round(amount * 100)::bigint as amount_cents,
+          state as status,
+          coalesce(nullif(metadata->>'priority', '')::integer, 99) as priority
         from obligations
-        where company_id = (select id from companies where external_id = :companyExternalId)
+        where company_id = (
+          select id from companies where external_id = :companyExternalId limit 1
+        )
         order by due_date asc, priority asc
       `,
       params,
@@ -282,14 +290,22 @@ export async function getCurrentCaseState(
     dataApi.execute<ForecastRunRow>(
       `
         select
-          external_id as run_external_id,
-          horizon_start_date::text as horizon_start_date,
-          horizon_end_date::text as horizon_end_date,
-          opening_cash_cents,
-          minimum_cash_cents
+          coalesce(external_id, output_summary->>'external_id', output_summary->>'externalId', idempotency_key) as run_external_id,
+          horizon_start::text as horizon_start_date,
+          horizon_end::text as horizon_end_date,
+          coalesce(
+            nullif(coalesce(output_summary->>'opening_cash_cents', output_summary->>'openingCashCents'), '')::bigint,
+            0
+          ) as opening_cash_cents,
+          coalesce(
+            nullif(coalesce(output_summary->>'minimum_cash_cents', output_summary->>'minimumCashCents'), '')::bigint,
+            0
+          ) as minimum_cash_cents
         from forecast_runs
-        where company_id = (select id from companies where external_id = :companyExternalId)
-          and case_id = :caseId
+        where company_id = (
+          select id from companies where external_id = :companyExternalId limit 1
+        )
+          and coalesce(output_summary->>'case_id', output_summary->>'caseId') = :caseId
         order by created_at desc
         limit 1
       `,
@@ -298,40 +314,50 @@ export async function getCurrentCaseState(
     dataApi.execute<ActionRow>(
       `
         select
-          a.external_id,
+          coalesce(a.external_id, a.metadata->>'externalId', a.idempotency_key) as external_id,
           a.action_type,
-          a.status,
-          a.priority,
+          a.state as status,
+          coalesce(
+            nullif(coalesce(a.metadata->>'priority_rank', a.metadata->>'priorityRank'), '')::integer,
+            99
+          ) as priority,
           a.title,
           c.external_id as customer_external_id,
           c.name as customer_name,
           i.external_id as invoice_external_id,
-          a.expected_recovery_cents,
-          a.rationale,
-          a.approval_required,
-          a.scheduled_for::text as scheduled_for
+          round(a.expected_cash_impact * 100)::bigint as expected_recovery_cents,
+          coalesce(a.rationale, '') as rationale,
+          coalesce(
+            nullif(coalesce(a.metadata->>'approval_required', a.metadata->>'approvalRequired'), '')::boolean,
+            true
+          ) as approval_required,
+          a.due_at::text as scheduled_for
         from actions a
         join action_plans ap on ap.id = a.action_plan_id
         join customers c on c.id = a.customer_id
         left join invoices i on i.id = a.invoice_id
-        where ap.company_id = (select id from companies where external_id = :companyExternalId)
-          and ap.case_id = :caseId
-        order by a.priority asc, a.created_at asc
+        where ap.company_id = (
+          select id from companies where external_id = :companyExternalId limit 1
+        )
+          and coalesce(a.metadata->>'case_id', a.metadata->>'caseId') = :caseId
+        order by priority asc, a.created_at asc
       `,
       params,
     ),
     dataApi.execute<MemoryRow>(
       `
         select
-          m.external_id,
+          coalesce(m.external_id, m.metadata->>'externalId') as external_id,
           c.external_id as customer_external_id,
           c.name as customer_name,
-          m.fact_text,
-          m.confidence,
-          m.source_kind
+          m.content as fact_text,
+          m.confidence::float8 as confidence,
+          m.source_type as source_kind
         from memory_chunks m
         join customers c on c.id = m.customer_id
-        where m.company_id = (select id from companies where external_id = :companyExternalId)
+        where m.company_id = (
+          select id from companies where external_id = :companyExternalId limit 1
+        )
         order by m.created_at desc
         limit 20
       `,
@@ -345,10 +371,10 @@ export async function getCurrentCaseState(
         `
           select
             point_date::text as point_date,
-            expected_cash_cents,
-            inflow_cents,
-            outflow_cents,
-            notes
+            coalesce(round(max(amount) filter (where metric = 'cash_balance') * 100), 0)::bigint as expected_cash_cents,
+            coalesce(round(max(amount) filter (where metric = 'expected_inflow') * 100), 0)::bigint as inflow_cents,
+            coalesce(round(max(amount) filter (where metric = 'expected_outflow') * 100), 0)::bigint as outflow_cents,
+            max(drivers->>'notes') as notes
           from forecast_points
           where forecast_run_id = (
             select id
@@ -356,6 +382,7 @@ export async function getCurrentCaseState(
             where external_id = :forecastRunExternalId
             limit 1
           )
+          group by point_date
           order by point_date asc
         `,
         { forecastRunExternalId: forecastRun.run_external_id },

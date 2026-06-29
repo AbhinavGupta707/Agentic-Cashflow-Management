@@ -1,3 +1,5 @@
+import "./load-local-env";
+
 import { getDataApiAvailability } from "../src/server/aws/data-api-env";
 import { createAuroraDataApiClient } from "../src/server/aws/rds-data-api";
 
@@ -12,7 +14,7 @@ async function main() {
   if (!availability.available) {
     console.log("Aurora Data API unavailable for this runtime.");
     console.log(`Missing environment variables: ${availability.missing.join(", ")}`);
-    process.exitCode = 0;
+    process.exitCode = 1;
     return;
   }
 

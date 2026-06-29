@@ -32,8 +32,10 @@ for each row execute function set_updated_at();
 create table if not exists companies (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references tenants(id) on delete cascade,
+  external_id text,
   legal_name text not null,
   trading_name text,
+  industry text,
   tax_identifier text,
   base_currency char(3) not null default 'GBP',
   timezone text not null default 'Europe/London',
@@ -41,6 +43,7 @@ create table if not exists companies (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint companies_tenant_external_unique unique (tenant_id, external_id),
   constraint companies_tenant_legal_name_unique unique (tenant_id, legal_name),
   constraint companies_state_check check (state in ('active', 'inactive', 'archived')),
   constraint companies_base_currency_check check (base_currency ~ '^[A-Z]{3}$')
@@ -104,6 +107,7 @@ for each row execute function set_updated_at();
 create table if not exists contacts (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references tenants(id) on delete cascade,
+  external_id text,
   customer_id uuid not null references customers(id) on delete cascade,
   full_name text not null,
   role_title text,
@@ -115,6 +119,7 @@ create table if not exists contacts (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint contacts_tenant_external_unique unique (tenant_id, external_id),
   constraint contacts_email_lower_check check (email is null or email = lower(email)),
   constraint contacts_consent_state_check check (consent_state in ('unknown', 'opted_in', 'opted_out')),
   constraint contacts_state_check check (state in ('active', 'inactive', 'archived')),
@@ -133,6 +138,7 @@ where is_primary;
 create table if not exists source_files (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references tenants(id) on delete cascade,
+  external_id text,
   company_id uuid references companies(id) on delete set null,
   uploaded_by_user_id uuid references app_users(id) on delete set null,
   source_kind text not null,
@@ -148,6 +154,7 @@ create table if not exists source_files (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint source_files_tenant_external_unique unique (tenant_id, external_id),
   constraint source_files_tenant_idempotency_unique unique (tenant_id, idempotency_key),
   constraint source_files_tenant_storage_unique unique (tenant_id, storage_provider, bucket, object_key),
   constraint source_files_sha256_check check (sha256 ~ '^[a-f0-9]{64}$'),
@@ -164,6 +171,7 @@ for each row execute function set_updated_at();
 create table if not exists import_batches (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references tenants(id) on delete cascade,
+  external_id text,
   source_file_id uuid references source_files(id) on delete set null,
   company_id uuid references companies(id) on delete cascade,
   import_kind text not null,
@@ -178,6 +186,7 @@ create table if not exists import_batches (
   completed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint import_batches_tenant_external_unique unique (tenant_id, external_id),
   constraint import_batches_tenant_idempotency_unique unique (tenant_id, idempotency_key),
   constraint import_batches_import_kind_check check (import_kind in ('customers', 'contacts', 'invoices', 'payments', 'obligations', 'mixed')),
   constraint import_batches_state_check check (state in ('queued', 'processing', 'completed', 'completed_with_errors', 'failed', 'cancelled')),
@@ -273,6 +282,7 @@ for each row execute function set_updated_at();
 create table if not exists obligations (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references tenants(id) on delete cascade,
+  external_id text,
   company_id uuid not null references companies(id) on delete cascade,
   cash_account_id uuid references cash_accounts(id) on delete set null,
   source_file_id uuid references source_files(id) on delete set null,
@@ -288,6 +298,7 @@ create table if not exists obligations (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint obligations_tenant_external_unique unique (tenant_id, external_id),
   constraint obligations_tenant_idempotency_unique unique (tenant_id, idempotency_key),
   constraint obligations_amount_check check (amount >= 0),
   constraint obligations_currency_check check (currency_code ~ '^[A-Z]{3}$'),
@@ -378,6 +389,7 @@ create table if not exists event_ledger (
 create table if not exists forecast_runs (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references tenants(id) on delete cascade,
+  external_id text,
   company_id uuid not null references companies(id) on delete cascade,
   input_event_ledger_id uuid references event_ledger(id) on delete set null,
   horizon_start date not null,
@@ -392,6 +404,7 @@ create table if not exists forecast_runs (
   completed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint forecast_runs_tenant_external_unique unique (tenant_id, external_id),
   constraint forecast_runs_tenant_idempotency_unique unique (tenant_id, idempotency_key),
   constraint forecast_runs_horizon_check check (horizon_end >= horizon_start),
   constraint forecast_runs_state_check check (state in ('queued', 'running', 'completed', 'failed', 'cancelled'))
@@ -427,6 +440,7 @@ create table if not exists forecast_points (
 create table if not exists action_plans (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references tenants(id) on delete cascade,
+  external_id text,
   company_id uuid not null references companies(id) on delete cascade,
   forecast_run_id uuid references forecast_runs(id) on delete set null,
   name text not null,
@@ -437,6 +451,7 @@ create table if not exists action_plans (
   idempotency_key text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint action_plans_tenant_external_unique unique (tenant_id, external_id),
   constraint action_plans_tenant_idempotency_unique unique (tenant_id, idempotency_key),
   constraint action_plans_currency_check check (currency_code ~ '^[A-Z]{3}$'),
   constraint action_plans_state_check check (state in ('draft', 'ready_for_review', 'approved', 'active', 'completed', 'cancelled'))
@@ -450,6 +465,7 @@ for each row execute function set_updated_at();
 create table if not exists actions (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references tenants(id) on delete cascade,
+  external_id text,
   action_plan_id uuid references action_plans(id) on delete cascade,
   company_id uuid not null references companies(id) on delete cascade,
   customer_id uuid references customers(id) on delete set null,
@@ -467,6 +483,7 @@ create table if not exists actions (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint actions_tenant_external_unique unique (tenant_id, external_id),
   constraint actions_tenant_idempotency_unique unique (tenant_id, idempotency_key),
   constraint actions_currency_check check (currency_code ~ '^[A-Z]{3}$'),
   constraint actions_type_check check (action_type in ('collect_invoice', 'send_reminder', 'call_customer', 'defer_obligation', 'pause_spend', 'manual_review')),
@@ -649,6 +666,7 @@ create table if not exists voice_transcripts (
 create table if not exists memory_chunks (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references tenants(id) on delete cascade,
+  external_id text,
   company_id uuid references companies(id) on delete cascade,
   customer_id uuid references customers(id) on delete cascade,
   source_type text not null,
@@ -663,6 +681,7 @@ create table if not exists memory_chunks (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint memory_chunks_tenant_external_unique unique (tenant_id, external_id),
   constraint memory_chunks_source_check check (source_type in ('invoice', 'payment', 'email', 'voice_call', 'voice_transcript', 'manual_note', 'agent_extract')),
   constraint memory_chunks_fact_type_check check (fact_type in ('payment_behavior', 'contact_preference', 'dispute_pattern', 'promise_to_pay', 'risk_signal', 'general')),
   constraint memory_chunks_confidence_check check (confidence is null or (confidence >= 0 and confidence <= 1)),
@@ -739,6 +758,7 @@ create table if not exists audit_log (
 );
 
 create index if not exists companies_tenant_state_idx on companies (tenant_id, state);
+create index if not exists companies_external_idx on companies (tenant_id, external_id) where external_id is not null;
 create index if not exists app_users_tenant_state_idx on app_users (tenant_id, state);
 create index if not exists customers_tenant_company_state_idx on customers (tenant_id, company_id, state);
 create index if not exists customers_name_trgm_idx on customers using gin (name gin_trgm_ops);

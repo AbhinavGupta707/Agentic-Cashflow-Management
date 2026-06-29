@@ -1,21 +1,19 @@
 export const DATA_API_ENV_KEYS = [
-  "AWS_ROLE_ARN",
   "AWS_REGION",
   "AURORA_CLUSTER_ARN",
   "AURORA_SECRET_ARN",
   "AURORA_DATABASE",
-  "AWS_S3_BUCKET",
 ] as const;
 
 export type DataApiEnvKey = (typeof DATA_API_ENV_KEYS)[number];
 
 export type DataApiConfig = {
-  roleArn: string;
   region: string;
   clusterArn: string;
   secretArn: string;
   database: string;
-  s3Bucket: string;
+  roleArn?: string;
+  s3Bucket?: string;
 };
 
 export type DataApiAvailability =
@@ -62,12 +60,12 @@ export function getDataApiAvailability(env: NodeJS.ProcessEnv = process.env): Da
   return {
     available: true,
     config: {
-      roleArn: env.AWS_ROLE_ARN!,
       region: env.AWS_REGION!,
       clusterArn: env.AURORA_CLUSTER_ARN!,
       secretArn: env.AURORA_SECRET_ARN!,
       database: env.AURORA_DATABASE!,
-      s3Bucket: env.AWS_S3_BUCKET!,
+      roleArn: present(env.AWS_ROLE_ARN) ? env.AWS_ROLE_ARN : undefined,
+      s3Bucket: present(env.AWS_S3_BUCKET) ? env.AWS_S3_BUCKET : undefined,
     },
   };
 }

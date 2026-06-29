@@ -1,29 +1,71 @@
+import "./load-local-env";
+
+import { createHash } from "node:crypto";
+
 import { getDataApiAvailability } from "../src/server/aws/data-api-env";
 import { createAuroraDataApiClient, type AuroraDataApiClient } from "../src/server/aws/rds-data-api";
-import { demoCaseData } from "../src/server/demo-data/cashflow-demo";
+import { demoCaseData, type DemoAction, type DemoMemoryFact } from "../src/server/demo-data/cashflow-demo";
 
+const SEED_MARKER = "checkpoint-1-demo";
+const TENANT_SLUG = "marlow-finch-demo";
+const TENANT_NAME = "Marlow & Finch Demo Tenant";
+const PRIMARY_CASH_ACCOUNT_NAME = "Primary Operating Account";
 const ZERO_VECTOR_1024 = `[${Array.from({ length: 1024 }, () => "0").join(",")}]`;
+
+type IdRow = {
+  id: string;
+};
 
 async function main() {
   const dryRun = process.argv.includes("--dry-run");
   const availability = getDataApiAvailability();
 
-  if (dryRun || !availability.available) {
+  if (dryRun) {
     printDryRun(availability.available ? [] : availability.missing);
+    return;
+  }
+
+  if (!availability.available) {
+    console.error("Demo seed cannot run because Aurora Data API env is incomplete.");
+    console.error(`Missing environment variables: ${availability.missing.join(", ")}`);
+    process.exitCode = 1;
     return;
   }
 
   const dataApi = createAuroraDataApiClient(availability.config);
 
   await dataApi.transaction(async (transactionId) => {
-    await seedCompany(dataApi, transactionId);
-    await seedImportSources(dataApi, transactionId);
-    await seedCustomersAndContacts(dataApi, transactionId);
-    await seedInvoices(dataApi, transactionId);
-    await seedObligations(dataApi, transactionId);
-    await seedForecast(dataApi, transactionId);
-    await seedActions(dataApi, transactionId);
-    await seedMemoryFacts(dataApi, transactionId);
+    const tenantId = await seedTenant(dataApi, transactionId);
+    const companyId = await seedCompany(dataApi, transactionId, tenantId);
+    const primaryCashAccountId = await seedPrimaryCashAccount(dataApi, transactionId, tenantId, companyId);
+    const sourceFileIds = await seedImportSources(dataApi, transactionId, tenantId, companyId);
+    const customerIds = await seedCustomersAndContacts(dataApi, transactionId, tenantId, companyId);
+    const invoiceIds = await seedInvoices(
+      dataApi,
+      transactionId,
+      tenantId,
+      companyId,
+      customerIds,
+      sourceFileIds,
+    );
+    await seedObligations(dataApi, transactionId, tenantId, companyId, sourceFileIds);
+    const forecastRunId = await seedForecast(
+      dataApi,
+      transactionId,
+      tenantId,
+      companyId,
+      primaryCashAccountId,
+    );
+    await seedActions(
+      dataApi,
+      transactionId,
+      tenantId,
+      companyId,
+      forecastRunId,
+      customerIds,
+      invoiceIds,
+    );
+    await seedMemoryFacts(dataApi, transactionId, tenantId, companyId, customerIds);
   });
 
   console.log("Demo cashflow case seeded successfully.");
@@ -34,7 +76,7 @@ async function main() {
 function printDryRun(missing: string[]) {
   console.log("Demo seed dry run.");
   if (missing.length > 0) {
-    console.log(`Live seed skipped because Data API env is missing: ${missing.join(", ")}`);
+    console.log(`Live seed would require these environment variables: ${missing.join(", ")}`);
   }
   console.log(`Company: ${demoCaseData.company.name} (${demoCaseData.company.externalId})`);
   console.log(`Customers: ${demoCaseData.customers.length}`);
@@ -46,507 +88,1243 @@ function printDryRun(missing: string[]) {
   console.log(`Memory facts: ${demoCaseData.memoryFacts.length}`);
 }
 
-async function seedCompany(dataApi: AuroraDataApiClient, transactionId: string) {
-  await dataApi.executeMutation(
+async function seedTenant(dataApi: AuroraDataApiClient, transactionId: string): Promise<string> {
+  const [tenant] = await dataApi.execute<IdRow>(
     `
-      insert into companies (
-        external_id,
+      insert into tenants (
+        slug,
         name,
-        industry,
-        base_currency,
-        timezone,
-        cash_balance_cents,
         metadata
       )
       values (
-        :externalId,
+        :slug,
         :name,
+        :metadata
+      )
+      on conflict (slug) do update set
+        name = excluded.name,
+        metadata = excluded.metadata,
+        updated_at = now()
+      returning id
+    `,
+    {
+      slug: TENANT_SLUG,
+      name: TENANT_NAME,
+      metadata: jsonParam({
+        seed: SEED_MARKER,
+        demoCompanyExternalId: demoCaseData.company.externalId,
+        demoCaseId: demoCaseData.caseId,
+      }),
+    },
+    { transactionId },
+  );
+
+  return requireId(tenant, "tenant");
+}
+
+async function seedCompany(
+  dataApi: AuroraDataApiClient,
+  transactionId: string,
+  tenantId: string,
+): Promise<string> {
+  const [company] = await dataApi.execute<IdRow>(
+    `
+      insert into companies (
+        tenant_id,
+        external_id,
+        legal_name,
+        trading_name,
+        industry,
+        base_currency,
+        timezone,
+        state,
+        metadata
+      )
+      values (
+        :tenantId,
+        :externalId,
+        :legalName,
+        :tradingName,
         :industry,
         :baseCurrency,
         :timezone,
-        :cashBalanceCents,
+        'active',
         :metadata
       )
-      on conflict (external_id) do update set
-        name = excluded.name,
+      on conflict (tenant_id, external_id) do update set
+        legal_name = excluded.legal_name,
+        trading_name = excluded.trading_name,
         industry = excluded.industry,
         base_currency = excluded.base_currency,
         timezone = excluded.timezone,
-        cash_balance_cents = excluded.cash_balance_cents,
+        state = excluded.state,
         metadata = excluded.metadata,
         updated_at = now()
+      returning id
     `,
     {
+      tenantId,
       externalId: demoCaseData.company.externalId,
-      name: demoCaseData.company.name,
+      legalName: demoCaseData.company.name,
+      tradingName: demoCaseData.company.name,
       industry: demoCaseData.company.industry,
       baseCurrency: demoCaseData.company.baseCurrency,
       timezone: demoCaseData.company.timezone,
-      cashBalanceCents: demoCaseData.company.cashBalanceCents,
-      metadata: { value: JSON.stringify({ seed: "checkpoint-1-demo" }), typeHint: "JSON" },
+      metadata: jsonParam({
+        seed: SEED_MARKER,
+        externalId: demoCaseData.company.externalId,
+        industry: demoCaseData.company.industry,
+        caseId: demoCaseData.caseId,
+      }),
     },
     { transactionId },
   );
+
+  return requireId(company, "company");
 }
 
-async function seedImportSources(dataApi: AuroraDataApiClient, transactionId: string) {
-  await dataApi.executeMutation(
+async function seedPrimaryCashAccount(
+  dataApi: AuroraDataApiClient,
+  transactionId: string,
+  tenantId: string,
+  companyId: string,
+): Promise<string> {
+  const [cashAccount] = await dataApi.execute<IdRow>(
     `
-      insert into import_batches (
-        external_id,
+      insert into cash_accounts (
+        tenant_id,
         company_id,
-        source_name,
-        source_type,
-        status
+        name,
+        institution_name,
+        account_type,
+        currency_code,
+        current_balance,
+        metadata
       )
       values (
-        :externalId,
-        (select id from companies where external_id = :companyExternalId),
-        :sourceName,
-        :sourceType,
-        'completed'
+        :tenantId,
+        :companyId,
+        :name,
+        :institutionName,
+        'operating',
+        :currencyCode,
+        :currentBalance,
+        :metadata
       )
-      on conflict (external_id) do update set
-        source_name = excluded.source_name,
-        source_type = excluded.source_type,
-        status = excluded.status,
+      on conflict (tenant_id, company_id, name) do update set
+        institution_name = excluded.institution_name,
+        account_type = excluded.account_type,
+        currency_code = excluded.currency_code,
+        current_balance = excluded.current_balance,
+        balance_as_of = now(),
+        metadata = excluded.metadata,
         updated_at = now()
+      returning id
     `,
     {
-      externalId: demoCaseData.importBatch.externalId,
-      companyExternalId: demoCaseData.company.externalId,
-      sourceName: demoCaseData.importBatch.sourceName,
-      sourceType: demoCaseData.importBatch.sourceType,
+      tenantId,
+      companyId,
+      name: PRIMARY_CASH_ACCOUNT_NAME,
+      institutionName: "Aurora demo ledger",
+      currencyCode: demoCaseData.company.baseCurrency,
+      currentBalance: decimalParamFromCents(demoCaseData.company.cashBalanceCents),
+      metadata: jsonParam({
+        seed: SEED_MARKER,
+        externalId: "cash_account_primary_demo",
+      }),
     },
     { transactionId },
   );
 
-  for (const sourceFile of demoCaseData.sourceFiles) {
-    await dataApi.executeMutation(
-      `
-        insert into source_files (
-          external_id,
-          company_id,
-          import_batch_id,
-          storage_key,
-          original_filename,
-          content_type,
-          size_bytes,
-          status
-        )
-        values (
-          :externalId,
-          (select id from companies where external_id = :companyExternalId),
-          (select id from import_batches where external_id = :importBatchExternalId),
-          :storageKey,
-          :originalFilename,
-          :contentType,
-          :sizeBytes,
-          'available'
-        )
-        on conflict (external_id) do update set
-          storage_key = excluded.storage_key,
-          original_filename = excluded.original_filename,
-          content_type = excluded.content_type,
-          size_bytes = excluded.size_bytes,
-          status = excluded.status,
-          updated_at = now()
-      `,
-      {
-        ...sourceFile,
-        companyExternalId: demoCaseData.company.externalId,
-        importBatchExternalId: demoCaseData.importBatch.externalId,
-      },
-      { transactionId },
-    );
-  }
+  return requireId(cashAccount, "cash account");
 }
 
-async function seedCustomersAndContacts(dataApi: AuroraDataApiClient, transactionId: string) {
-  for (const customer of demoCaseData.customers) {
-    await dataApi.executeMutation(
+async function seedImportSources(
+  dataApi: AuroraDataApiClient,
+  transactionId: string,
+  tenantId: string,
+  companyId: string,
+): Promise<Map<string, string>> {
+  const sourceFileIds = new Map<string, string>();
+  const bucket = process.env.AWS_S3_BUCKET ?? "demo-bucket-unconfigured";
+
+  for (const sourceFile of demoCaseData.sourceFiles) {
+    const [row] = await dataApi.execute<IdRow>(
       `
-        insert into customers (
+        insert into source_files (
+          tenant_id,
           external_id,
           company_id,
-          name,
-          segment,
-          payment_terms_days,
-          risk_score,
+          source_kind,
+          storage_provider,
+          bucket,
+          object_key,
+          sha256,
+          original_filename,
+          content_type,
+          byte_size,
+          upload_state,
+          idempotency_key,
           metadata
         )
         values (
+          :tenantId,
           :externalId,
-          (select id from companies where external_id = :companyExternalId),
-          :name,
-          :segment,
-          :paymentTermsDays,
-          :riskScore,
+          :companyId,
+          :sourceKind,
+          's3',
+          :bucket,
+          :objectKey,
+          :sha256,
+          :originalFilename,
+          :contentType,
+          :byteSize,
+          'ready',
+          :idempotencyKey,
           :metadata
         )
-        on conflict (external_id) do update set
-          name = excluded.name,
-          segment = excluded.segment,
-          payment_terms_days = excluded.payment_terms_days,
-          risk_score = excluded.risk_score,
+        on conflict (tenant_id, idempotency_key) do update set
+          source_kind = excluded.source_kind,
+          bucket = excluded.bucket,
+          object_key = excluded.object_key,
+          sha256 = excluded.sha256,
+          original_filename = excluded.original_filename,
+          content_type = excluded.content_type,
+          byte_size = excluded.byte_size,
+          upload_state = excluded.upload_state,
+          idempotency_key = excluded.idempotency_key,
           metadata = excluded.metadata,
           updated_at = now()
+        returning id
       `,
       {
-        externalId: customer.externalId,
-        companyExternalId: demoCaseData.company.externalId,
-        name: customer.name,
-        segment: customer.segment,
-        paymentTermsDays: customer.paymentTermsDays,
-        riskScore: customer.riskScore,
-        metadata: { value: JSON.stringify({ seed: "checkpoint-1-demo" }), typeHint: "JSON" },
+        tenantId,
+        externalId: sourceFile.externalId,
+        companyId,
+        sourceKind: inferSourceKind(sourceFile.originalFilename),
+        bucket,
+        objectKey: sourceFile.storageKey,
+        sha256: createHash("sha256").update(sourceFile.storageKey).digest("hex"),
+        originalFilename: sourceFile.originalFilename,
+        contentType: sourceFile.contentType,
+        byteSize: sourceFile.sizeBytes,
+        idempotencyKey: sourceFile.externalId,
+        metadata: jsonParam({
+          seed: SEED_MARKER,
+          externalId: sourceFile.externalId,
+          caseId: demoCaseData.caseId,
+        }),
       },
       { transactionId },
     );
 
-    for (const contact of customer.contacts) {
+    sourceFileIds.set(sourceFile.externalId, requireId(row, `source file ${sourceFile.externalId}`));
+  }
+
+  await dataApi.executeMutation(
+    `
+      insert into import_batches (
+        tenant_id,
+        external_id,
+        source_file_id,
+        company_id,
+        import_kind,
+        state,
+        idempotency_key,
+        rows_total,
+        rows_succeeded,
+        rows_failed,
+        summary,
+        started_at,
+        completed_at
+      )
+      values (
+        :tenantId,
+        :externalId,
+        :sourceFileId,
+        :companyId,
+        'mixed',
+        'completed',
+        :idempotencyKey,
+        :rowsTotal,
+        :rowsSucceeded,
+        0,
+        :summary,
+        now(),
+        now()
+      )
+      on conflict (tenant_id, idempotency_key) do update set
+        source_file_id = excluded.source_file_id,
+        company_id = excluded.company_id,
+        import_kind = excluded.import_kind,
+        state = excluded.state,
+        rows_total = excluded.rows_total,
+        rows_succeeded = excluded.rows_succeeded,
+        rows_failed = excluded.rows_failed,
+        summary = excluded.summary,
+        started_at = excluded.started_at,
+        completed_at = excluded.completed_at,
+        updated_at = now()
+    `,
+    {
+      tenantId,
+      externalId: demoCaseData.importBatch.externalId,
+      sourceFileId: sourceFileIds.get(demoCaseData.sourceFiles[0]?.externalId ?? "") ?? null,
+      companyId,
+      idempotencyKey: demoCaseData.importBatch.externalId,
+      rowsTotal:
+        demoCaseData.customers.length +
+        demoCaseData.invoices.length +
+        demoCaseData.obligations.length +
+        demoCaseData.actionPlan.actions.length +
+        demoCaseData.memoryFacts.length,
+      rowsSucceeded:
+        demoCaseData.customers.length +
+        demoCaseData.invoices.length +
+        demoCaseData.obligations.length +
+        demoCaseData.actionPlan.actions.length +
+        demoCaseData.memoryFacts.length,
+      summary: jsonParam({
+        seed: SEED_MARKER,
+        externalId: demoCaseData.importBatch.externalId,
+        sourceName: demoCaseData.importBatch.sourceName,
+        sourceType: demoCaseData.importBatch.sourceType,
+      }),
+    },
+    { transactionId },
+  );
+
+  return sourceFileIds;
+}
+
+async function seedCustomersAndContacts(
+  dataApi: AuroraDataApiClient,
+  transactionId: string,
+  tenantId: string,
+  companyId: string,
+): Promise<Map<string, string>> {
+  const customerIds = new Map<string, string>();
+
+  for (const customer of demoCaseData.customers) {
+    const [customerRow] = await dataApi.execute<IdRow>(
+      `
+        insert into customers (
+          tenant_id,
+          company_id,
+          external_id,
+          name,
+          legal_name,
+          billing_email,
+          payment_terms_days,
+          risk_tier,
+          state,
+          metadata
+        )
+        values (
+          :tenantId,
+          :companyId,
+          :externalId,
+          :name,
+          :legalName,
+          :billingEmail,
+          :paymentTermsDays,
+          :riskTier,
+          'active',
+          :metadata
+        )
+        on conflict (tenant_id, external_id) do update set
+          name = excluded.name,
+          legal_name = excluded.legal_name,
+          billing_email = excluded.billing_email,
+          payment_terms_days = excluded.payment_terms_days,
+          risk_tier = excluded.risk_tier,
+          state = excluded.state,
+          metadata = excluded.metadata,
+          updated_at = now()
+        returning id
+      `,
+      {
+        tenantId,
+        companyId,
+        externalId: customer.externalId,
+        name: customer.name,
+        legalName: customer.name,
+        billingEmail: customer.contacts[0]?.email ?? null,
+        paymentTermsDays: customer.paymentTermsDays,
+        riskTier: riskTierFromScore(customer.riskScore),
+        metadata: jsonParam({
+          seed: SEED_MARKER,
+          segment: customer.segment,
+          riskScore: customer.riskScore,
+        }),
+      },
+      { transactionId },
+    );
+
+    const customerId = requireId(customerRow, `customer ${customer.externalId}`);
+    customerIds.set(customer.externalId, customerId);
+
+    await dataApi.executeMutation(
+      `
+        delete from contacts
+        where customer_id = :customerId
+          and metadata->>'seed' = :seedMarker
+      `,
+      {
+        customerId,
+        seedMarker: SEED_MARKER,
+      },
+      { transactionId },
+    );
+
+    for (const [index, contact] of customer.contacts.entries()) {
       await dataApi.executeMutation(
         `
           insert into contacts (
-            external_id,
-            company_id,
+            tenant_id,
             customer_id,
             full_name,
+            role_title,
             email,
-            phone,
-            role
+            phone_e164,
+            is_primary,
+            consent_state,
+            state,
+            metadata
           )
           values (
-            :externalId,
-            (select id from companies where external_id = :companyExternalId),
-            (select id from customers where external_id = :customerExternalId),
+            :tenantId,
+            :customerId,
             :fullName,
+            :roleTitle,
             :email,
-            :phone,
-            :role
+            :phoneE164,
+            :isPrimary,
+            'unknown',
+            'active',
+            :metadata
           )
-          on conflict (external_id) do update set
-            full_name = excluded.full_name,
-            email = excluded.email,
-            phone = excluded.phone,
-            role = excluded.role,
-            updated_at = now()
         `,
         {
-          ...contact,
-          companyExternalId: demoCaseData.company.externalId,
-          customerExternalId: customer.externalId,
+          tenantId,
+          customerId,
+          fullName: contact.fullName,
+          roleTitle: contact.role,
+          email: contact.email,
+          phoneE164: contact.phone,
+          isPrimary: index === 0,
+          metadata: jsonParam({
+            seed: SEED_MARKER,
+            externalId: contact.externalId,
+          }),
         },
         { transactionId },
       );
     }
   }
+
+  return customerIds;
 }
 
-async function seedInvoices(dataApi: AuroraDataApiClient, transactionId: string) {
+async function seedInvoices(
+  dataApi: AuroraDataApiClient,
+  transactionId: string,
+  tenantId: string,
+  companyId: string,
+  customerIds: Map<string, string>,
+  sourceFileIds: Map<string, string>,
+): Promise<Map<string, string>> {
+  const invoiceIds = new Map<string, string>();
+  const sourceFileId = sourceFileIds.get(demoCaseData.sourceFiles[0]?.externalId ?? "") ?? null;
+
   for (const invoice of demoCaseData.invoices) {
-    await dataApi.executeMutation(
+    const [invoiceRow] = await dataApi.execute<IdRow>(
       `
         insert into invoices (
-          external_id,
+          tenant_id,
           company_id,
           customer_id,
+          source_file_id,
+          external_id,
           invoice_number,
           issue_date,
           due_date,
-          currency,
-          amount_cents,
-          amount_paid_cents,
-          status,
-          description
+          currency_code,
+          amount_total,
+          amount_paid,
+          state,
+          idempotency_key,
+          metadata
         )
         values (
+          :tenantId,
+          :companyId,
+          :customerId,
+          :sourceFileId,
           :externalId,
-          (select id from companies where external_id = :companyExternalId),
-          (select id from customers where external_id = :customerExternalId),
           :invoiceNumber,
           :issueDate,
           :dueDate,
-          :currency,
-          :amountCents,
-          :amountPaidCents,
-          :status,
-          :description
+          :currencyCode,
+          :amountTotal,
+          :amountPaid,
+          :state,
+          :idempotencyKey,
+          :metadata
         )
-        on conflict (external_id) do update set
+        on conflict (tenant_id, external_id) do update set
+          customer_id = excluded.customer_id,
+          source_file_id = excluded.source_file_id,
           invoice_number = excluded.invoice_number,
           issue_date = excluded.issue_date,
           due_date = excluded.due_date,
-          currency = excluded.currency,
-          amount_cents = excluded.amount_cents,
-          amount_paid_cents = excluded.amount_paid_cents,
-          status = excluded.status,
-          description = excluded.description,
+          currency_code = excluded.currency_code,
+          amount_total = excluded.amount_total,
+          amount_paid = excluded.amount_paid,
+          state = excluded.state,
+          idempotency_key = excluded.idempotency_key,
+          metadata = excluded.metadata,
           updated_at = now()
+        returning id
       `,
       {
-        ...invoice,
-        companyExternalId: demoCaseData.company.externalId,
+        tenantId,
+        companyId,
+        customerId: requireMapValue(customerIds, invoice.customerExternalId, "invoice customer"),
+        sourceFileId,
+        externalId: invoice.externalId,
+        invoiceNumber: invoice.invoiceNumber,
+        issueDate: invoice.issueDate,
+        dueDate: invoice.dueDate,
+        currencyCode: invoice.currency,
+        amountTotal: decimalParamFromCents(invoice.amountCents),
+        amountPaid: decimalParamFromCents(invoice.amountPaidCents),
+        state: invoiceStateFromDemo(invoice.status),
+        idempotencyKey: invoice.externalId,
+        metadata: jsonParam({
+          seed: SEED_MARKER,
+          description: invoice.description,
+          demoStatus: invoice.status,
+        }),
       },
       { transactionId },
     );
+
+    invoiceIds.set(invoice.externalId, requireId(invoiceRow, `invoice ${invoice.externalId}`));
   }
+
+  return invoiceIds;
 }
 
-async function seedObligations(dataApi: AuroraDataApiClient, transactionId: string) {
+async function seedObligations(
+  dataApi: AuroraDataApiClient,
+  transactionId: string,
+  tenantId: string,
+  companyId: string,
+  sourceFileIds: Map<string, string>,
+) {
+  const sourceFileId = sourceFileIds.get(demoCaseData.sourceFiles[1]?.externalId ?? "") ?? null;
+
   for (const obligation of demoCaseData.obligations) {
     await dataApi.executeMutation(
       `
         insert into obligations (
+          tenant_id,
           external_id,
           company_id,
-          title,
-          vendor_name,
+          source_file_id,
+          counterparty_name,
           category,
+          obligation_type,
           due_date,
-          currency,
-          amount_cents,
-          status,
-          priority
+          currency_code,
+          amount,
+          state,
+          idempotency_key,
+          metadata
         )
         values (
+          :tenantId,
           :externalId,
-          (select id from companies where external_id = :companyExternalId),
-          :title,
-          :vendorName,
+          :companyId,
+          :sourceFileId,
+          :counterpartyName,
           :category,
+          :obligationType,
           :dueDate,
-          :currency,
-          :amountCents,
-          :status,
-          :priority
+          :currencyCode,
+          :amount,
+          :state,
+          :idempotencyKey,
+          :metadata
         )
-        on conflict (external_id) do update set
-          title = excluded.title,
-          vendor_name = excluded.vendor_name,
+        on conflict (tenant_id, idempotency_key) do update set
+          external_id = excluded.external_id,
+          source_file_id = excluded.source_file_id,
+          counterparty_name = excluded.counterparty_name,
           category = excluded.category,
+          obligation_type = excluded.obligation_type,
           due_date = excluded.due_date,
-          currency = excluded.currency,
-          amount_cents = excluded.amount_cents,
-          status = excluded.status,
-          priority = excluded.priority,
+          currency_code = excluded.currency_code,
+          amount = excluded.amount,
+          state = excluded.state,
+          metadata = excluded.metadata,
           updated_at = now()
       `,
       {
-        ...obligation,
-        companyExternalId: demoCaseData.company.externalId,
+        tenantId,
+        externalId: obligation.externalId,
+        companyId,
+        sourceFileId,
+        counterpartyName: obligation.vendorName,
+        category: obligation.category,
+        obligationType: obligationTypeFromCategory(obligation.category),
+        dueDate: obligation.dueDate,
+        currencyCode: obligation.currency,
+        amount: decimalParamFromCents(obligation.amountCents),
+        state: obligationStateFromDemo(obligation.status),
+        idempotencyKey: obligation.externalId,
+        metadata: jsonParam({
+          seed: SEED_MARKER,
+          title: obligation.title,
+          priority: obligation.priority,
+          externalId: obligation.externalId,
+          demoStatus: obligation.status,
+        }),
       },
       { transactionId },
     );
   }
 }
 
-async function seedForecast(dataApi: AuroraDataApiClient, transactionId: string) {
-  await dataApi.executeMutation(
+async function seedForecast(
+  dataApi: AuroraDataApiClient,
+  transactionId: string,
+  tenantId: string,
+  companyId: string,
+  primaryCashAccountId: string,
+): Promise<string> {
+  const [forecastRun] = await dataApi.execute<IdRow>(
     `
       insert into forecast_runs (
+        tenant_id,
         external_id,
         company_id,
-        case_id,
-        horizon_start_date,
-        horizon_end_date,
-        opening_cash_cents,
-        minimum_cash_cents,
-        status
+        horizon_start,
+        horizon_end,
+        scenario,
+        model_version,
+        state,
+        input_snapshot,
+        output_summary,
+        idempotency_key,
+        started_at,
+        completed_at
       )
       values (
+        :tenantId,
         :externalId,
-        (select id from companies where external_id = :companyExternalId),
-        :caseId,
-        :horizonStartDate,
-        :horizonEndDate,
-        :openingCashCents,
-        :minimumCashCents,
-        'completed'
+        :companyId,
+        :horizonStart,
+        :horizonEnd,
+        'base',
+        'checkpoint-1-demo',
+        'completed',
+        :inputSnapshot,
+        :outputSummary,
+        :idempotencyKey,
+        now(),
+        now()
       )
-      on conflict (external_id) do update set
-        case_id = excluded.case_id,
-        horizon_start_date = excluded.horizon_start_date,
-        horizon_end_date = excluded.horizon_end_date,
-        opening_cash_cents = excluded.opening_cash_cents,
-        minimum_cash_cents = excluded.minimum_cash_cents,
-        status = excluded.status,
+      on conflict (tenant_id, idempotency_key) do update set
+        external_id = excluded.external_id,
+        horizon_start = excluded.horizon_start,
+        horizon_end = excluded.horizon_end,
+        scenario = excluded.scenario,
+        model_version = excluded.model_version,
+        state = excluded.state,
+        input_snapshot = excluded.input_snapshot,
+        output_summary = excluded.output_summary,
+        started_at = excluded.started_at,
+        completed_at = excluded.completed_at,
         updated_at = now()
+      returning id
     `,
     {
+      tenantId,
       externalId: demoCaseData.forecastRun.externalId,
-      companyExternalId: demoCaseData.company.externalId,
-      caseId: demoCaseData.caseId,
-      horizonStartDate: demoCaseData.forecastRun.horizonStartDate,
-      horizonEndDate: demoCaseData.forecastRun.horizonEndDate,
-      openingCashCents: demoCaseData.forecastRun.openingCashCents,
-      minimumCashCents: demoCaseData.forecastRun.minimumCashCents,
+      companyId,
+      horizonStart: demoCaseData.forecastRun.horizonStartDate,
+      horizonEnd: demoCaseData.forecastRun.horizonEndDate,
+      inputSnapshot: jsonParam({
+        seed: SEED_MARKER,
+        caseId: demoCaseData.caseId,
+        case_id: demoCaseData.caseId,
+      }),
+      outputSummary: jsonParam({
+        seed: SEED_MARKER,
+        caseId: demoCaseData.caseId,
+        case_id: demoCaseData.caseId,
+        externalId: demoCaseData.forecastRun.externalId,
+        external_id: demoCaseData.forecastRun.externalId,
+        openingCashCents: demoCaseData.forecastRun.openingCashCents,
+        opening_cash_cents: demoCaseData.forecastRun.openingCashCents,
+        minimumCashCents: demoCaseData.forecastRun.minimumCashCents,
+        minimum_cash_cents: demoCaseData.forecastRun.minimumCashCents,
+      }),
+      idempotencyKey: demoCaseData.caseId,
     },
+    { transactionId },
+  );
+
+  const forecastRunId = requireId(forecastRun, "forecast run");
+
+  await dataApi.executeMutation(
+    `
+      delete from forecast_points
+      where forecast_run_id = :forecastRunId
+    `,
+    { forecastRunId },
     { transactionId },
   );
 
   for (const point of demoCaseData.forecastRun.points) {
-    await dataApi.executeMutation(
-      `
-        insert into forecast_points (
-          forecast_run_id,
-          point_date,
-          expected_cash_cents,
-          inflow_cents,
-          outflow_cents,
-          notes
-        )
-        values (
-          (select id from forecast_runs where external_id = :forecastRunExternalId),
-          :pointDate,
-          :expectedCashCents,
-          :inflowCents,
-          :outflowCents,
-          :notes
-        )
-        on conflict (forecast_run_id, point_date) do update set
-          expected_cash_cents = excluded.expected_cash_cents,
-          inflow_cents = excluded.inflow_cents,
-          outflow_cents = excluded.outflow_cents,
-          notes = excluded.notes,
-          updated_at = now()
-      `,
-      {
-        ...point,
-        forecastRunExternalId: demoCaseData.forecastRun.externalId,
-      },
-      { transactionId },
+    await insertForecastMetric(
+      dataApi,
+      transactionId,
+      tenantId,
+      forecastRunId,
+      companyId,
+      primaryCashAccountId,
+      point.pointDate,
+      "cash_balance",
+      point.expectedCashCents,
+      point.notes,
+    );
+    await insertForecastMetric(
+      dataApi,
+      transactionId,
+      tenantId,
+      forecastRunId,
+      companyId,
+      null,
+      point.pointDate,
+      "expected_inflow",
+      point.inflowCents,
+      null,
+    );
+    await insertForecastMetric(
+      dataApi,
+      transactionId,
+      tenantId,
+      forecastRunId,
+      companyId,
+      null,
+      point.pointDate,
+      "expected_outflow",
+      point.outflowCents,
+      null,
     );
   }
+
+  return forecastRunId;
 }
 
-async function seedActions(dataApi: AuroraDataApiClient, transactionId: string) {
+async function insertForecastMetric(
+  dataApi: AuroraDataApiClient,
+  transactionId: string,
+  tenantId: string,
+  forecastRunId: string,
+  companyId: string,
+  cashAccountId: string | null,
+  pointDate: string,
+  metric: "cash_balance" | "expected_inflow" | "expected_outflow",
+  amountCents: number,
+  notes: string | null,
+) {
   await dataApi.executeMutation(
     `
-      insert into action_plans (
-        external_id,
+      insert into forecast_points (
+        tenant_id,
+        forecast_run_id,
         company_id,
-        case_id,
-        status,
-        summary,
-        projected_recovery_cents
+        cash_account_id,
+        point_date,
+        metric,
+        currency_code,
+        amount,
+        confidence,
+        drivers
       )
       values (
-        :externalId,
-        (select id from companies where external_id = :companyExternalId),
-        :caseId,
-        'recommended',
-        :summary,
-        :projectedRecoveryCents
+        :tenantId,
+        :forecastRunId,
+        :companyId,
+        :cashAccountId,
+        :pointDate,
+        :metric,
+        :currencyCode,
+        :amount,
+        :confidence,
+        :drivers
       )
-      on conflict (external_id) do update set
-        case_id = excluded.case_id,
-        status = excluded.status,
-        summary = excluded.summary,
-        projected_recovery_cents = excluded.projected_recovery_cents,
-        updated_at = now()
     `,
     {
+      tenantId,
+      forecastRunId,
+      companyId,
+      cashAccountId,
+      pointDate,
+      metric,
+      currencyCode: demoCaseData.company.baseCurrency,
+      amount: decimalParamFromCents(amountCents),
+      confidence: decimalParam(0.82, 4),
+      drivers: jsonParam({
+        seed: SEED_MARKER,
+        notes,
+      }),
+    },
+    { transactionId },
+  );
+}
+
+async function seedActions(
+  dataApi: AuroraDataApiClient,
+  transactionId: string,
+  tenantId: string,
+  companyId: string,
+  forecastRunId: string,
+  customerIds: Map<string, string>,
+  invoiceIds: Map<string, string>,
+) {
+  const [actionPlan] = await dataApi.execute<IdRow>(
+    `
+      insert into action_plans (
+        tenant_id,
+        external_id,
+        company_id,
+        forecast_run_id,
+        name,
+        state,
+        currency_code,
+        total_expected_impact,
+        rationale,
+        idempotency_key
+      )
+      values (
+        :tenantId,
+        :externalId,
+        :companyId,
+        :forecastRunId,
+        :name,
+        'ready_for_review',
+        :currencyCode,
+        :totalExpectedImpact,
+        :rationale,
+        :idempotencyKey
+      )
+      on conflict (tenant_id, idempotency_key) do update set
+        external_id = excluded.external_id,
+        forecast_run_id = excluded.forecast_run_id,
+        name = excluded.name,
+        state = excluded.state,
+        currency_code = excluded.currency_code,
+        total_expected_impact = excluded.total_expected_impact,
+        rationale = excluded.rationale,
+        updated_at = now()
+      returning id
+    `,
+    {
+      tenantId,
       externalId: demoCaseData.actionPlan.externalId,
-      companyExternalId: demoCaseData.company.externalId,
-      caseId: demoCaseData.caseId,
-      summary: demoCaseData.actionPlan.summary,
-      projectedRecoveryCents: demoCaseData.actionPlan.projectedRecoveryCents,
+      companyId,
+      forecastRunId,
+      name: "Checkpoint 1 demo recovery plan",
+      currencyCode: demoCaseData.company.baseCurrency,
+      totalExpectedImpact: decimalParamFromCents(demoCaseData.actionPlan.projectedRecoveryCents),
+      rationale: demoCaseData.actionPlan.summary,
+      idempotencyKey: demoCaseData.caseId,
     },
     { transactionId },
   );
 
+  const actionPlanId = requireId(actionPlan, "action plan");
+
   for (const action of demoCaseData.actionPlan.actions) {
-    await dataApi.executeMutation(
+    const [actionRow] = await dataApi.execute<IdRow>(
       `
         insert into actions (
+          tenant_id,
           external_id,
           action_plan_id,
+          company_id,
           customer_id,
           invoice_id,
           action_type,
-          status,
-          priority,
-          scheduled_for,
-          expected_recovery_cents,
           title,
           rationale,
-          approval_required
+          priority,
+          state,
+          currency_code,
+          expected_cash_impact,
+          due_at,
+          idempotency_key,
+          metadata
         )
         values (
+          :tenantId,
           :externalId,
-          (select id from action_plans where external_id = :actionPlanExternalId),
-          (select id from customers where external_id = :customerExternalId),
-          (select id from invoices where external_id = :invoiceExternalId),
+          :actionPlanId,
+          :companyId,
+          :customerId,
+          :invoiceId,
           :actionType,
-          :status,
-          :priority,
-          :scheduledFor,
-          :expectedRecoveryCents,
           :title,
           :rationale,
-          :approvalRequired
+          :priority,
+          :state,
+          :currencyCode,
+          :expectedCashImpact,
+          :dueAt,
+          :idempotencyKey,
+          :metadata
         )
-        on conflict (external_id) do update set
+        on conflict (tenant_id, idempotency_key) do update set
+          external_id = excluded.external_id,
+          action_plan_id = excluded.action_plan_id,
+          company_id = excluded.company_id,
+          customer_id = excluded.customer_id,
+          invoice_id = excluded.invoice_id,
           action_type = excluded.action_type,
-          status = excluded.status,
-          priority = excluded.priority,
-          scheduled_for = excluded.scheduled_for,
-          expected_recovery_cents = excluded.expected_recovery_cents,
           title = excluded.title,
           rationale = excluded.rationale,
-          approval_required = excluded.approval_required,
+          priority = excluded.priority,
+          state = excluded.state,
+          currency_code = excluded.currency_code,
+          expected_cash_impact = excluded.expected_cash_impact,
+          due_at = excluded.due_at,
+          metadata = excluded.metadata,
           updated_at = now()
+        returning id
       `,
       {
-        ...action,
-        actionPlanExternalId: demoCaseData.actionPlan.externalId,
+        tenantId,
+        externalId: action.externalId,
+        actionPlanId,
+        companyId,
+        customerId: requireMapValue(customerIds, action.customerExternalId, "action customer"),
+        invoiceId: action.invoiceExternalId ? requireMapValue(invoiceIds, action.invoiceExternalId, "action invoice") : null,
+        actionType: actionTypeFromDemo(action),
+        title: action.title,
+        rationale: action.rationale,
+        priority: priorityLevelFromRank(action.priority),
+        state: actionStateFromDemo(action),
+        currencyCode: demoCaseData.company.baseCurrency,
+        expectedCashImpact: decimalParamFromCents(action.expectedRecoveryCents),
+        dueAt: action.scheduledFor,
+        idempotencyKey: action.externalId,
+        metadata: jsonParam({
+          seed: SEED_MARKER,
+          caseId: demoCaseData.caseId,
+          case_id: demoCaseData.caseId,
+          externalId: action.externalId,
+          demoActionType: action.actionType,
+          demoStatus: action.status,
+          approvalRequired: action.approvalRequired,
+          approval_required: action.approvalRequired,
+          priorityRank: action.priority,
+          priority_rank: action.priority,
+        }),
+      },
+      { transactionId },
+    );
+
+    if (action.approvalRequired) {
+      await seedApprovalRecord(dataApi, transactionId, tenantId, requireId(actionRow, `action ${action.externalId}`), action);
+    }
+  }
+}
+
+async function seedApprovalRecord(
+  dataApi: AuroraDataApiClient,
+  transactionId: string,
+  tenantId: string,
+  actionId: string,
+  action: DemoAction,
+) {
+  await dataApi.executeMutation(
+    `
+      insert into approval_records (
+        tenant_id,
+        action_id,
+        state,
+        request_payload,
+        requested_at,
+        expires_at,
+        idempotency_key
+      )
+      values (
+        :tenantId,
+        :actionId,
+        'pending',
+        :requestPayload,
+        now(),
+        :expiresAt,
+        :idempotencyKey
+      )
+      on conflict (tenant_id, idempotency_key) do update set
+        action_id = excluded.action_id,
+        state = excluded.state,
+        request_payload = excluded.request_payload,
+        requested_at = excluded.requested_at,
+        expires_at = excluded.expires_at,
+        updated_at = now()
+    `,
+    {
+      tenantId,
+      actionId,
+      requestPayload: jsonParam({
+        seed: SEED_MARKER,
+        actionExternalId: action.externalId,
+        rationale: action.rationale,
+      }),
+      expiresAt: action.scheduledFor,
+      idempotencyKey: `approval:${action.externalId}`,
+    },
+    { transactionId },
+  );
+}
+
+async function seedMemoryFacts(
+  dataApi: AuroraDataApiClient,
+  transactionId: string,
+  tenantId: string,
+  companyId: string,
+  customerIds: Map<string, string>,
+) {
+  await dataApi.executeMutation(
+    `
+      delete from memory_chunks
+      where company_id = :companyId
+        and metadata->>'seed' = :seedMarker
+    `,
+    {
+      companyId,
+      seedMarker: SEED_MARKER,
+    },
+    { transactionId },
+  );
+
+  for (const fact of demoCaseData.memoryFacts) {
+    await dataApi.executeMutation(
+      `
+        insert into memory_chunks (
+          tenant_id,
+          external_id,
+          company_id,
+          customer_id,
+          source_type,
+          fact_type,
+          content,
+          embedding,
+          embedding_model,
+          confidence,
+          metadata
+        )
+        values (
+          :tenantId,
+          :externalId,
+          :companyId,
+          :customerId,
+          :sourceType,
+          :factType,
+          :content,
+          cast(:embedding as vector),
+          :embeddingModel,
+          :confidence,
+          :metadata
+        )
+      `,
+      {
+        tenantId,
+        externalId: fact.externalId,
+        companyId,
+        customerId: requireMapValue(customerIds, fact.customerExternalId, "memory fact customer"),
+        sourceType: memorySourceTypeFromDemo(fact),
+        factType: memoryFactTypeFromDemo(fact),
+        content: fact.factText,
+        embedding: ZERO_VECTOR_1024,
+        embeddingModel: "checkpoint-1-demo-zero-vector",
+        confidence: decimalParam(fact.confidence, 4),
+        metadata: jsonParam({
+          seed: SEED_MARKER,
+          externalId: fact.externalId,
+          external_id: fact.externalId,
+          sourceExternalId: fact.sourceExternalId,
+          source_external_id: fact.sourceExternalId,
+          sourceKind: fact.sourceKind,
+          source_kind: fact.sourceKind,
+        }),
       },
       { transactionId },
     );
   }
 }
 
-async function seedMemoryFacts(dataApi: AuroraDataApiClient, transactionId: string) {
-  for (const fact of demoCaseData.memoryFacts) {
-    await dataApi.executeMutation(
-      `
-        insert into memory_chunks (
-          external_id,
-          company_id,
-          customer_id,
-          source_kind,
-          source_external_id,
-          fact_text,
-          confidence,
-          embedding
-        )
-        values (
-          :externalId,
-          (select id from companies where external_id = :companyExternalId),
-          (select id from customers where external_id = :customerExternalId),
-          :sourceKind,
-          :sourceExternalId,
-          :factText,
-          :confidence,
-          cast(:embedding as vector)
-        )
-        on conflict (external_id) do update set
-          source_kind = excluded.source_kind,
-          source_external_id = excluded.source_external_id,
-          fact_text = excluded.fact_text,
-          confidence = excluded.confidence,
-          embedding = excluded.embedding,
-          updated_at = now()
-      `,
-      {
-        ...fact,
-        companyExternalId: demoCaseData.company.externalId,
-        embedding: ZERO_VECTOR_1024,
-      },
-      { transactionId },
-    );
+function inferSourceKind(filename: string): string {
+  if (filename.includes("payroll") || filename.includes("obligation")) {
+    return "obligation_csv";
   }
+
+  return "invoice_csv";
+}
+
+function riskTierFromScore(score: number): string {
+  if (score >= 70) {
+    return "high";
+  }
+  if (score >= 55) {
+    return "elevated";
+  }
+  if (score >= 35) {
+    return "standard";
+  }
+  return "low";
+}
+
+function invoiceStateFromDemo(status: string): string {
+  if (status === "overdue") {
+    return "open";
+  }
+
+  return status;
+}
+
+function obligationTypeFromCategory(category: string): string {
+  switch (category) {
+    case "payroll":
+      return "payroll";
+    case "tax":
+      return "tax";
+    case "rent":
+      return "rent";
+    case "loan":
+      return "loan";
+    default:
+      return "supplier";
+  }
+}
+
+function obligationStateFromDemo(status: string): string {
+  if (status === "due") {
+    return "overdue";
+  }
+
+  return status;
+}
+
+function actionTypeFromDemo(action: DemoAction): string {
+  switch (action.actionType) {
+    case "email":
+      return "send_reminder";
+    case "call":
+      return "call_customer";
+    case "payment_plan":
+      return "collect_invoice";
+    default:
+      return "manual_review";
+  }
+}
+
+function actionStateFromDemo(action: DemoAction): string {
+  switch (action.status) {
+    case "recommended":
+      return "proposed";
+    case "needs_approval":
+      return "needs_approval";
+    case "approved":
+      return "approved";
+    case "sent":
+      return "scheduled";
+    case "completed":
+      return "completed";
+    default:
+      return "proposed";
+  }
+}
+
+function priorityLevelFromRank(priority: number): string {
+  if (priority <= 1) {
+    return "urgent";
+  }
+  if (priority === 2) {
+    return "high";
+  }
+  if (priority === 3) {
+    return "medium";
+  }
+  return "low";
+}
+
+function memorySourceTypeFromDemo(fact: DemoMemoryFact): string {
+  switch (fact.sourceKind) {
+    case "payment_event":
+      return "payment";
+    case "contact_note":
+      return "manual_note";
+    default:
+      return "invoice";
+  }
+}
+
+function memoryFactTypeFromDemo(fact: DemoMemoryFact): string {
+  switch (fact.sourceKind) {
+    case "payment_event":
+      return "payment_behavior";
+    case "contact_note":
+      return "contact_preference";
+    default:
+      return "risk_signal";
+  }
+}
+
+function decimalParamFromCents(cents: number) {
+  return {
+    value: (cents / 100).toFixed(2),
+    typeHint: "DECIMAL" as const,
+  };
+}
+
+function decimalParam(value: number, decimals = 2) {
+  return {
+    value: value.toFixed(decimals),
+    typeHint: "DECIMAL" as const,
+  };
+}
+
+function jsonParam(value: unknown) {
+  return {
+    value: JSON.stringify(value),
+    typeHint: "JSON" as const,
+  };
+}
+
+function requireId(row: IdRow | undefined, label: string): string {
+  if (!row?.id) {
+    throw new Error(`Could not resolve ${label} id while seeding demo data.`);
+  }
+
+  return row.id;
+}
+
+function requireMapValue(values: Map<string, string>, key: string, label: string): string {
+  const value = values.get(key);
+
+  if (!value) {
+    throw new Error(`Could not resolve ${label} for ${key} while seeding demo data.`);
+  }
+
+  return value;
 }
 
 main().catch((error) => {

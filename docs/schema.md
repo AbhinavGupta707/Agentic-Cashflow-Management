@@ -1,6 +1,6 @@
 # Checkpoint 1 Aurora Schema
 
-This checkpoint defines the Aurora PostgreSQL foundation for Agentic Cashflow Management. It is scoped to schema and migration assets only; repository read paths and demo seed data are owned by the Data API/Seed lane.
+This checkpoint defines the Aurora PostgreSQL foundation for Agentic Cashflow Management and the schema contract used by the demo seed/repository read path.
 
 ## Migration Order
 
@@ -50,13 +50,15 @@ AURORA_DATABASE=cash_management
 
 The first RDS Data API call can fail with `DatabaseResumingException` when Aurora resumes from 0 ACU. `scripts/migrate.ts` retries that exception with bounded exponential backoff.
 
-After the app scaffold/package lane lands dependencies, expected commands are:
+Expected commands are:
 
 ```bash
-npx tsx scripts/check-aurora-env.ts
-npx tsx scripts/migrate.ts --dry-run
-npx tsx scripts/migrate.ts
+npm run db:check
+npm run db:migrate:dry
+npm run db:migrate
 ```
+
+Repository scripts load `.env.local` and `.env` automatically.
 
 ## Rollback
 
@@ -70,6 +72,7 @@ All product tables carry `tenant_id`, and natural uniqueness is tenant-scoped. I
 
 Core examples:
 
+- Companies, source files, import batches, contacts, obligations, forecast runs, action plans, actions, and memory chunks expose tenant-scoped `external_id` where the live demo needs deterministic upserts/read-model identifiers.
 - `source_files`, `import_batches`, `invoices`, `payments`, `event_inbox`, `event_ledger`, `forecast_runs`, `actions`, `approval_records`, `communications`, `provider_executions`, `voice_calls`, `agent_runs`, and `audit_log` each have tenant-scoped idempotency uniqueness.
 - Workflow tables use state checks so processors cannot introduce undocumented states.
 - Time-sensitive queue tables have state/time indexes for workers.
@@ -77,7 +80,7 @@ Core examples:
 
 ## Seed Notes
 
-Seed data should be added by the Data API/Seed lane, not inside schema migrations. Recommended first seed shape:
+Seed data is added by `npm run db:seed`; use `npm run db:seed:dry` for an offline count/shape check. Current seed shape:
 
 - one tenant and one company
 - one owner/operator user

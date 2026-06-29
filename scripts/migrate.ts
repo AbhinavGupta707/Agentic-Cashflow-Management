@@ -1,3 +1,5 @@
+import "./load-local-env";
+
 import {
   BeginTransactionCommand,
   CommitTransactionCommand,
@@ -13,14 +15,23 @@ import { basename, join, resolve } from "node:path";
 const migrationsDir = resolve(process.env.MIGRATIONS_DIR ?? "db/migrations");
 const dryRun = process.env.DRY_RUN === "1" || process.argv.includes("--dry-run");
 
-const env = {
-  region: requireEnv("AWS_REGION"),
-  resourceArn: requireEnv("AURORA_CLUSTER_ARN"),
-  secretArn: requireEnv("AURORA_SECRET_ARN"),
-  database: requireEnv("AURORA_DATABASE"),
+type AuroraMigrationEnv = {
+  region: string;
+  resourceArn: string;
+  secretArn: string;
+  database: string;
 };
 
-const client = new RDSDataClient({ region: env.region });
+const env: AuroraMigrationEnv | null = dryRun
+  ? null
+  : {
+      region: requireEnv("AWS_REGION"),
+      resourceArn: requireEnv("AURORA_CLUSTER_ARN"),
+      secretArn: requireEnv("AURORA_SECRET_ARN"),
+      database: requireEnv("AURORA_DATABASE"),
+    };
+
+const client = env ? new RDSDataClient({ region: env.region }) : null;
 
 async function main() {
   const migrations = readdirSync(migrationsDir)
@@ -114,12 +125,13 @@ async function applyMigration(migration: {
   checksum: string;
   statements: string[];
 }) {
+  const aurora = requireAuroraRuntime();
   const transaction = await withResumeRetry(() =>
-    client.send(
+    aurora.client.send(
       new BeginTransactionCommand({
-        resourceArn: env.resourceArn,
-        secretArn: env.secretArn,
-        database: env.database,
+        resourceArn: aurora.env.resourceArn,
+        secretArn: aurora.env.secretArn,
+        database: aurora.env.database,
       }),
     ),
   );
@@ -144,19 +156,19 @@ async function applyMigration(migration: {
     );
 
     await withResumeRetry(() =>
-      client.send(
+      aurora.client.send(
         new CommitTransactionCommand({
-          resourceArn: env.resourceArn,
-          secretArn: env.secretArn,
+          resourceArn: aurora.env.resourceArn,
+          secretArn: aurora.env.secretArn,
           transactionId: transaction.transactionId,
         }),
       ),
     );
   } catch (error) {
-    await client.send(
+    await aurora.client.send(
       new RollbackTransactionCommand({
-        resourceArn: env.resourceArn,
-        secretArn: env.secretArn,
+        resourceArn: aurora.env.resourceArn,
+        secretArn: aurora.env.secretArn,
         transactionId: transaction.transactionId,
       }),
     );
@@ -169,18 +181,28 @@ async function executeStatement(
   transactionId?: string,
   parameters?: SqlParameter[],
 ) {
+  const aurora = requireAuroraRuntime();
+
   return withResumeRetry(() =>
-    client.send(
+    aurora.client.send(
       new ExecuteStatementCommand({
-        resourceArn: env.resourceArn,
-        secretArn: env.secretArn,
-        database: env.database,
+        resourceArn: aurora.env.resourceArn,
+        secretArn: aurora.env.secretArn,
+        database: aurora.env.database,
         transactionId,
         sql,
         parameters,
       }),
     ),
   );
+}
+
+function requireAuroraRuntime(): { env: AuroraMigrationEnv; client: RDSDataClient } {
+  if (!env || !client) {
+    throw new Error("Aurora migration runtime is unavailable during dry-run mode");
+  }
+
+  return { env, client };
 }
 
 async function withResumeRetry<T>(operation: () => Promise<T>): Promise<T> {

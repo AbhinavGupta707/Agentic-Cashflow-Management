@@ -66,7 +66,7 @@ The old public project name and URL were scanned out of the main repository and 
 
 The original chat heartbeat automation was paused because heartbeats are attached to a chat thread and do not interrupt an already-running thread. The scheduled heartbeat could show a past next-run time with no `Last run` when the orchestrator chat was active at the due time.
 
-Active monitor:
+The cron monitor was paused after the user confirmed all lanes were complete and manual integration took over:
 
 ```text
 Automation ID: cp1-worktree-orchestration-cron
@@ -75,6 +75,7 @@ Name: CP1 Worktree Orchestration Cron
 Workspace: /Users/abhinavgupta/Desktop/H0 AWS Hack/Cash Management /Agentic-Cashflow-Management
 Runs: standalone local workspace job
 Cadence: approximately every 2 minutes
+Status: paused
 ```
 
 Paused legacy monitor:
@@ -87,7 +88,7 @@ Reason: chat heartbeats are not reliable for long-running active orchestration t
 
 ## Checkpoint 1 Outcome
 
-By the end of checkpoint 1:
+Integrated checkpoint 1 state:
 
 - A fresh Next.js App Router app exists in this repository.
 - The app has TypeScript, Tailwind styling, env validation, Vercel-compatible scripts, and a basic cash-management cockpit shell.
@@ -96,6 +97,38 @@ By the end of checkpoint 1:
 - A repository/API read path can load sample case state from Aurora through RDS Data API.
 - `npm run typecheck` and `npm run build` pass after integration.
 - No MongoDB dependency or external legacy repo dependency exists.
+
+Merged branch commits:
+
+- Lane A: `9af650c` via merge `a6a268d`
+- Lane B: `f656279` via merge `d1be246`
+- Lane C: `a878dd5` via merge `9a27246`
+- Lane D: `8eb2c58` via merge `be5ac98`
+
+Integration patch status:
+
+- Schema, seed, and repository read-model contracts were reconciled around the multi-tenant Aurora schema.
+- CLI scripts load `.env.local`/`.env`.
+- `npm run db:migrate:dry` and `npm run db:seed:dry` pass without live AWS env.
+- `npm run smoke` intentionally exits with a missing-env configuration error until local Aurora credentials are provided.
+
+Verification record:
+
+- `npm install` - passed
+- `npm run typecheck` - passed
+- `npm run build` - passed
+- `npm run db:migrate:dry-run` - passed; `0001_core_cash_management_schema.sql` parsed as 116 statements
+- `npm run db:seed:dry-run` - passed; demo payload summary reported 3 customers, 3 contacts, 3 invoices, 2 obligations, 4 forecast points, 2 actions, and 2 memory facts
+- `npm run db:check-data-api` - failed honestly because `AWS_REGION`, `AURORA_CLUSTER_ARN`, `AURORA_SECRET_ARN`, and `AURORA_DATABASE` were not set in the orchestration shell
+- `npm run smoke` - failed honestly for the same missing Aurora env
+- `git diff --check` - passed
+- runtime denylist scan `rg -n "RunwayOps|runwayops|mongodb\\+srv|MongoDB|MONGODB|mongodb" src scripts db package.json README.md` - no matches
+
+Checkpoint verdict:
+
+- Checkpoint 1 is merged, build-verified, and documented on `main`.
+- Live Aurora verification is still pending a shell or deployment context with the required Aurora env values.
+- Checkpoint 2 remains paused until live `db:migrate`, `db:seed`, and `smoke` are run and recorded.
 
 ## Lane Split
 

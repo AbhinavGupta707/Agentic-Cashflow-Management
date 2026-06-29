@@ -1,4 +1,4 @@
-export type ProviderName = "fireworks" | "langsmith";
+export type ProviderName = "fireworks" | "gmail" | "langsmith";
 
 export type ProviderAvailability = "available" | "unavailable" | "disabled" | "error";
 
@@ -7,6 +7,7 @@ export type ProviderUnavailableReason =
   | "disabled"
   | "missing-config"
   | "no-key"
+  | "no-token"
   | "provider-error";
 
 export type ProviderStatus = {
@@ -29,4 +30,11 @@ export const LANGSMITH_PROVIDER_ENV = [
   "LANGSMITH_TRACING",
   "LANGSMITH_API_KEY",
   "LANGSMITH_PROJECT",
+] as const;
+
+export const GMAIL_PROVIDER_ENV = [
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_REDIRECT_URI",
+  "GMAIL_ENCRYPTION_KEY",
 ] as const;

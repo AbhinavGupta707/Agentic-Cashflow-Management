@@ -1046,11 +1046,7 @@ function ActionsScreen({
                   <h3 className="text-lg font-semibold text-slate-100">Compliance & Guardrails</h3>
                 </div>
                 <div className="mt-5 space-y-3 text-sm text-slate-400">
-                  {(selectedDetail?.guardrails.length ? selectedDetail.guardrails : [
-                    "Human approval required before any outbound message or call.",
-                    "No provider ID is shown until a real provider execution exists.",
-                    displayedAction.providerNote,
-                  ]).map((guardrail) => (
+                  {actionGuardrailsForDisplay(selectedDetail, displayedAction).map((guardrail) => (
                     <Guardrail key={guardrail} label={guardrail} />
                   ))}
                 </div>
@@ -2250,6 +2246,26 @@ function Guardrail({ label }: { label: string }) {
       <span>{label}</span>
     </div>
   );
+}
+
+function actionGuardrailsForDisplay(detail: ProductActionDetail | null, action: ProductAction) {
+  const guardrails = detail?.guardrails.length
+    ? detail.guardrails
+    : [
+        "Human approval required before any outbound message or call.",
+        "No provider ID is shown until a real provider execution exists.",
+        action.providerNote,
+      ];
+
+  return Array.from(new Set(guardrails.map(formatConsumerGuardrail)));
+}
+
+function formatConsumerGuardrail(label: string) {
+  if (label.includes("live=true") || label.includes("TWILIO_TEST_TO_NUMBER") || label.includes("test-number")) {
+    return "Live calls are available only after human approval and are limited to the configured demo phone number.";
+  }
+
+  return label;
 }
 
 function LegendDot({ color, label }: { color: string; label: string }) {

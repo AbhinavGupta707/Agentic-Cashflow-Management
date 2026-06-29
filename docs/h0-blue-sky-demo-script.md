@@ -1,4 +1,4 @@
-# H0 Blue Sky Demo Script
+# H0 Demo Script
 
 Date: 2026-06-29
 
@@ -7,142 +7,153 @@ Target length: under 3 minutes.
 Framing: use the ambition and cadence of the earlier RunwayOps script, but
 tailor the proof to H0. The judges should not need to infer the scoring case:
 the narration names the problem, the user, the live workflow, the deliberate
-Aurora architecture, the Vercel deployment, the full-stack design, and the
-additionality beyond a dashboard.
+Aurora architecture, the Vercel deployment, the full-stack design, the live
+Twilio call, and the additionality beyond a dashboard.
 
 ## Setup Tabs
 
 1. Product: `https://agentic-cashflow-management.vercel.app`
 2. Action proof fallback:
-   `https://agentic-cashflow-management.vercel.app/api/product/actions/act_northstar_cfo_email`
+   `https://agentic-cashflow-management.vercel.app/api/product/actions/act_ember_lane_call`
 3. Submission proof assets:
    - architecture diagram
    - AWS Aurora usage screenshot
    - Vercel project link and Team ID
 
-Before recording, keep the Northstar action in a pending state unless the video
-intentionally shows approval. If approval state has changed, reseed/reset the
-demo case first.
+Before recording:
+
+- Configure `TWILIO_TEST_TO_NUMBER` to your own phone number in the target
+  environment.
+- Keep the Ember Lane phone action pending unless the recording intentionally
+  shows approval.
+- If approval/call state has changed, reseed/reset the demo case first.
 
 ## Demo Path
 
 1. Start on Overview.
 2. Open Forecasts.
 3. Open Actions.
-4. Select `Send payment-link reminder to Northstar`.
-5. Show Fireworks-generated email/call preview, customer memory, evidence, and
+4. Select `Call Ember Lane owner before lunch service`.
+5. Show Fireworks-generated call script, customer memory, evidence, and
    guardrails.
-6. Open Agent Activity.
-7. Show Customers or Settings only if time remains.
+6. Approve the action, then click `Place approved test call`.
+7. Let your phone ring; do not answer.
+8. Open Agent Activity.
 
 ## Best Main Script
 
 **0:00-0:25 - Hook, User, And Impact**
 
 Hello everyone, my name is Abhinav, and this is RunwayOps: an agentic cashflow
-operating system for small business finance teams, built for H0 on Vercel and
-Amazon Aurora PostgreSQL.
+operating system for small business finance teams, built on Vercel and Amazon
+Aurora PostgreSQL.
 
-Late payments cost the UK economy almost GBP 11 billion a year and are linked
-to around 38 business closures every day. That is the risk here: profitable on
-paper, but unable to meet payroll because invoices, obligations, customer
-behavior, and follow-up sit in separate tools.
+Globally, SMEs face a 5.7 trillion dollar finance gap. For a founder, that does
+not feel abstract; it can be one late customer payment between making payroll
+and a cash crisis.
 
-**0:25-0:45 - Blue-Sky Thesis**
+The problem is that invoices, obligations, customer behavior, and follow-up all
+sit in separate tools.
 
-The blue-sky product is not another cash dashboard. It is one operating loop:
-data comes in, Aurora becomes the source of truth, deterministic forecasting
-finds the risk, agents recommend action, a human approves it, and outcomes
-become memory for the next decision.
+That is the gap RunwayOps is built for.
 
-That is the gap RunwayOps is built for. Let's see how it works.
+**0:25-0:42 - Product Thesis**
 
-**0:45-1:10 - Overview And Design**
+RunwayOps is not another cash dashboard. It is one operating loop: Aurora is the
+source of truth, deterministic forecasting finds risk, multiple agents
+coordinate the response, a human approves it, providers execute only when
+allowed, and outcomes become memory.
 
-Here we are in the Vercel-deployed Next.js product. This case is Marlow & Finch
-Studio with a payroll-week cash squeeze.
+Let's see how it works.
 
-The overview reads from Aurora, not client-side demo state. It shows GBP 41,250
-cash, GBP 38,000 payroll due, and a projected low point of negative GBP 6,350.
-The design is not asking the founder to interpret raw tables. It translates the
-back end into the next decision: recover GBP 18,600 from Northstar.
+**0:42-1:02 - Overview And Design**
 
-**1:10-1:45 - Technological Implementation**
+Here we are in the Vercel-deployed Next.js product, on the Marlow & Finch
+payroll-risk case.
 
-On Forecasts, the important H0 technical point is that the model is not
-inventing money. Aurora is deliberately integrated as the operational backbone:
-finance state, forecasts, actions, approvals, memory, provider logs, and agent
-checkpoints share one data model.
+The overview reads from Aurora. It shows cash pressure, payroll risk,
+recoverable cash, and the highest-impact actions. The design point is simple:
+the founder sees what to do next, not raw finance tables.
 
-S3 stores source provenance, and Vercel route handlers expose the product APIs.
+**1:02-1:42 - Technological Implementation And Agents**
+
+On Forecasts, the technical point is that the model is not inventing money.
+Aurora is the operational backbone: finance state, forecasts, actions,
+approvals, memory, provider logs, and agent checkpoints share one data model.
+
+S3 stores provenance, and Vercel route handlers expose the APIs.
 The cash math is deterministic. AI is load-bearing in a different place:
-explaining risk, ranking actions, drafting outreach, and summarizing customer
-behavior. The LLM explains and drafts; the deterministic layer carries the
-money.
+explaining risk, ranking actions, drafting outreach, and summarizing behavior.
 
-**1:45-2:25 - Agentic Action**
+Behind the scenes, four specialist agents collaborate. The Forecast Agent
+recomputes runway from Aurora facts. The Memory Agent retrieves customer
+behavior. The Collections Agent chooses email versus phone and drafts the
+outreach. The Audit Agent records the evidence and checkpoints. The LLM
+explains; the deterministic layer carries the money.
 
-Now I open Actions and select Northstar.
+**1:42-2:25 - Agentic Action And Live Call**
 
-This is where RunwayOps becomes agentic. It has identified the customer, invoice
-NS-1048, cash impact, and rationale. The detail view calls the live API and
-generates a Fireworks-backed email draft, call script, evidence, and guardrails.
+Now I open Actions and select the Ember Lane phone action.
 
-The additionality is the memory. Northstar pays fastest when reminders include a
-payment link and the final snagging list, so this is not a generic collection
-email. It is Aurora-stored behavior shaping the next action.
+It has identified the customer, invoice EL-3310, cash impact, and rationale.
+The live API generates a Fireworks-backed call script, evidence, and guardrails.
 
-Autonomy is bounded. Nothing is sent just because the AI wrote a draft. Approval
-is explicit, Gmail is connection-gated, and Twilio requires approval, live mode,
-and a test number.
+The additionality is memory. Ember Lane's owner is usually reachable before
+lunch service and responds better to calls than email, so Aurora-stored behavior
+is shaping the action.
+
+Autonomy is bounded. Nothing happens just because the AI wrote a script. I can
+approve the action, and in a second you will hear my phone ringing as RunwayOps
+triggers an outbound call to the customer, which in this demo is me. I will not
+pick up; the point is that a real provider action was triggered only after
+approval and written back into Aurora.
 
 **2:25-2:45 - Evidence And Shippedness**
 
-In Agent Activity, you can see the evidence: graph started, forecast snapshot,
-recommendation plan, draft generated, and graph completed. This is why the
+In Agent Activity, you can see the evidence: finance pack imported, forecast
+recomputed, recommendation ranked, draft generated, human approval recorded, and
+outbound call initiated. If the call is completed, Twilio callbacks, transcript
+state, and recorded outcomes write back into Aurora memory. This is why the
 Vercel deployment goes beyond a static front end: screens, APIs, model calls,
-approval state, and audit trail share live product state.
+approval state, provider execution, and audit trail share live state.
 
 **2:45-3:00 - Close**
 
 The original insight is that cash management should not be a passive BI report
 or one hidden mega-prompt. It should be an evidence-backed operating loop.
 
-RunwayOps is a shippable B2B cashflow assistant: Vercel on the front end, Aurora
-and S3 on the back end, deterministic finance for numbers, agents for judgment,
-human approval for action, and memory after every outcome.
+RunwayOps is a shippable B2B cashflow assistant: Vercel on the front end,
+Aurora and S3 on the back end, deterministic finance, agentic judgment, human
+approval, live provider execution, and memory after every outcome.
 
 ## Shorter Emergency Version
 
 Hello everyone, my name is Abhinav, and this is RunwayOps: an agentic cashflow
 operating system for small business finance teams, built with Vercel and Amazon
-Aurora PostgreSQL for H0.
+Aurora PostgreSQL.
 
-Late payments cost the UK economy almost GBP 11 billion a year and are linked to
-around 38 business closures every day. The problem is that cash risk is usually
-split across invoices, obligations, customer history, and follow-up tools.
-RunwayOps turns that into one operating loop: ingest evidence, forecast risk,
-recommend recovery action, require approval, execute only through gated
-providers, and learn from the outcome.
+Globally, SMEs face a 5.7 trillion dollar finance gap. For a founder, that can
+be one late customer payment between making payroll and a cash crisis. RunwayOps
+is built for the moment when cash risk is split across invoices, obligations,
+customer history, and follow-up tools.
 
-This Vercel app is reading the Marlow & Finch case from Aurora. The overview
-shows GBP 41,250 cash, a GBP 38,000 payroll obligation, a projected low point of
-negative GBP 6,350, and the top recoverable action: GBP 18,600 from Northstar.
+This Vercel app reads the Marlow & Finch case from Aurora. The overview shows
+cash pressure, payroll risk, recoverable cash, and recommended actions.
 
 The cash math is deterministic. Aurora stores invoices, obligations, forecasts,
-actions, approvals, memory, provider logs, and agent checkpoints. Fireworks is
-used where language and judgment help: explaining the action, drafting outreach,
-and generating a call script.
+actions, approvals, memory, provider logs, and agent checkpoints. The Forecast,
+Memory, Collections, and Audit agents coordinate the workflow, with Fireworks
+used for explanation and drafting.
 
-When I open the Northstar action, the system shows invoice evidence, customer
-memory, a Fireworks-generated preview, and guardrails. Nothing is sent just
-because the AI generated text. Approval is explicit, Gmail is connection-gated,
-and Twilio execution requires approval, live mode, and a test number.
+When I open the Ember Lane phone action, the system shows invoice evidence,
+customer memory, a Fireworks-generated call script, and guardrails. I approve
+the action, then trigger a live Twilio test call to my own configured number.
+Here you can hear my phone ringing.
 
 Agent Activity shows the run evidence: forecast snapshot, recommendation plan,
-draft generated, and graph completed. That is the H0 story: a designed product
-surface on Vercel, with a deliberate Aurora data model underneath, built for a
-real B2B cashflow workflow.
+draft generated, graph completed, and provider execution. That is the story: a
+designed product surface on Vercel, with a deliberate Aurora data model
+underneath, built for a real B2B cashflow workflow.
 
 ## Fallback Lines
 
@@ -150,14 +161,16 @@ real B2B cashflow workflow.
   product behavior is that the app shows a real provider preview when available
   and an honest deterministic fallback when it is not."
 - If the seeded case date looks old: "This is a seeded payroll-week case. The
-  scoring proof is that the forecast, actions, and evidence are read from
-  Aurora, not a client-side script."
+  scoring proof is that the forecast, actions, and evidence are Aurora-backed."
 - If Gmail is unavailable: "For this recording, external email is intentionally
   gated. I am showing the approval and draft review path without fabricating a
   Gmail message ID."
 - If Twilio is mentioned but not executed: "Twilio is configured, but live calls
   require an approved action, explicit live mode, and the configured test
   number. That prevents accidental calls during judging."
+- If the live call is blocked: "This is the guardrail working: the route will
+  not call unless the approved action, live flag, Twilio credentials, and
+  configured test number all match."
 
 ## Judging Criteria Map
 
@@ -170,12 +183,12 @@ real B2B cashflow workflow.
   around raw infrastructure. Overview, Forecasts, Actions, and Agent Activity
   make the front end visibly reflect back-end state.
 - Impact And Real-World Applicability: Name the target user as an SMB founder or
-  finance operator. Use the late-payment stat, then show the concrete
-  payroll-risk case with a GBP 6,350 projected gap and GBP 26,450 recovery plan.
+  finance operator. Use the global SME finance context, then show the concrete
+  payroll-risk case, recommended actions, and live call-to-self execution.
 - Originality And Additionality: Say the product is not a cash dashboard and not
   one hidden mega-prompt. The additionality is combining deterministic finance,
-  customer memory, agentic recommendation, human approval, provider guardrails,
-  and audit evidence into one operating loop.
+  customer memory, agentic recommendation, human approval, live provider
+  guardrails, and audit evidence into one operating loop.
 
 ## Source Notes
 
@@ -186,10 +199,10 @@ real B2B cashflow workflow.
   architecture diagram, and AWS Database usage screenshot.
 - Official H0 judging criteria: Technological Implementation, Design, Impact
   and Real-world Applicability, and Originality.
-- Late-payment hook: the GBP 11 billion and 38-closures-per-day figures are
-  reported in UK late-payment coverage citing government research, including
-  The Guardian's July 2025 coverage:
-  `https://www.theguardian.com/business/2025/jul/30/labour-firms-penalised-late-payments-suppliers`
+- Global SME hook: the World Bank says SMEs represent around 90 percent of
+  businesses, account for more than half of global employment, and face a
+  US$5.7T finance gap across 119 emerging market and developing economies:
+  `https://www.worldbank.org/en/topic/smefinance`
 - Current repo proof used for this script:
   - `docs/live-product-ui-agent-plan.md`
   - `docs/live-demo-runbook.md`

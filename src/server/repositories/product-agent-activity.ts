@@ -367,49 +367,49 @@ function buildTimeline(
     ...runs.map((run) => ({
       id: run.id,
       kind: "agent_run" as const,
-      title: `${formatIdentifier(run.run_kind)} run`,
+      title: agentRunTitle(run),
       state: run.state,
       occurredAt: run.completed_at ?? run.started_at ?? run.created_at,
-      detail: run.error_message ?? run.graph_name,
+      detail: run.error_message ?? agentRunDetail(run),
       traceUrl: run.trace_url,
     })),
     ...checkpoints.map((checkpoint) => ({
       id: `${checkpoint.agent_run_id}:${checkpoint.checkpoint_key}`,
       kind: "checkpoint" as const,
-      title: checkpoint.label ?? formatIdentifier(checkpoint.checkpoint_key),
+      title: checkpointTitle(checkpoint),
       state: checkpoint.stage,
       occurredAt: checkpoint.created_at,
-      detail: `Checkpoint ${checkpoint.checkpoint_key}`,
+      detail: checkpointDetail(checkpoint),
     })),
     ...events.map((event) => ({
       id: event.id,
       kind: "event" as const,
-      title: formatIdentifier(event.event_type),
+      title: eventTitle(event),
       state: event.aggregate_type,
       occurredAt: event.occurred_at,
-      detail: event.payload_summary ?? "Event ledger fact recorded.",
+      detail: eventDetail(event),
     })),
     ...providerExecutions.map((execution) => ({
       id: execution.id,
       kind: "provider_execution" as const,
-      title: `${execution.provider} ${formatIdentifier(execution.operation)}`,
+      title: providerExecutionTitle(execution),
       state: execution.state,
       occurredAt: execution.completed_at ?? execution.attempted_at ?? execution.created_at,
-      detail: execution.last_error ?? `Attempts: ${execution.attempts}`,
+      detail: providerExecutionDetail(execution),
       providerExecutionId: execution.provider_execution_id,
     })),
     ...audits.map((audit) => ({
       id: audit.id,
       kind: "audit" as const,
-      title: formatIdentifier(audit.action),
+      title: auditTitle(audit),
       state: audit.actor_type,
       occurredAt: audit.occurred_at,
-      detail: `${audit.target_type}${audit.target_id ? ` ${audit.target_id}` : ""}`,
+      detail: auditDetail(audit),
     })),
     ...memories.map((memory) => ({
       id: memory.id,
       kind: "memory" as const,
-      title: `Learned ${formatIdentifier(memory.fact_type)}`,
+      title: memoryTitle(memory),
       state: memory.source_type,
       occurredAt: memory.created_at,
       detail:
@@ -420,6 +420,130 @@ function buildTimeline(
   ];
 
   return items.sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
+}
+
+function agentRunTitle(run: AgentRunRow): string {
+  if (run.run_kind === "forecast") {
+    return run.state === "completed" ? "Forecast recomputed" : "Forecast run started";
+  }
+
+  if (run.run_kind === "recommendation") {
+    return run.state === "completed" ? "Agent workflow completed" : "Recommendation workflow started";
+  }
+
+  return `${formatIdentifier(run.run_kind)} run`;
+}
+
+function agentRunDetail(run: AgentRunRow): string {
+  if (run.graph_name.includes("forecast_recommendation_draft")) {
+    return "Forecast, recommendation, and draft agents completed against Aurora-backed case state.";
+  }
+
+  return run.graph_name;
+}
+
+function checkpointTitle(checkpoint: AgentCheckpointRow): string {
+  switch (checkpoint.checkpoint_key) {
+    case "forecast.snapshot":
+      return "Forecast recomputed";
+    case "recommendation.plan":
+      return "Recommendation ranked";
+    case "draft.generated":
+      return "Draft generated";
+    case "graph.completed":
+      return "Agent workflow completed";
+    case "graph.started":
+      return "Agent workflow started";
+    default:
+      return checkpoint.label ?? formatIdentifier(checkpoint.checkpoint_key);
+  }
+}
+
+function checkpointDetail(checkpoint: AgentCheckpointRow): string {
+  switch (checkpoint.checkpoint_key) {
+    case "forecast.snapshot":
+      return "Deterministic cash forecast checkpoint recorded from Aurora facts.";
+    case "recommendation.plan":
+      return "Recommended actions ranked by cash impact, timing, and customer memory.";
+    case "draft.generated":
+      return "Outreach draft or call script generated and stored behind approval.";
+    case "graph.completed":
+      return "Agent workflow finished with reviewable checkpoint evidence.";
+    case "graph.started":
+      return "Agent workflow started from the current case state.";
+    default:
+      return `Checkpoint ${checkpoint.checkpoint_key}`;
+  }
+}
+
+function eventTitle(event: EventLedgerRow): string {
+  if (["customers", "invoices", "obligations", "payments"].includes(event.aggregate_type)) {
+    return "Finance pack imported";
+  }
+
+  return formatIdentifier(event.event_type);
+}
+
+function eventDetail(event: EventLedgerRow): string {
+  if (["customers", "invoices", "obligations", "payments"].includes(event.aggregate_type)) {
+    return `${formatIdentifier(event.event_type)} event persisted to Aurora from source evidence.`;
+  }
+
+  return event.payload_summary ?? "Event ledger fact recorded.";
+}
+
+function providerExecutionTitle(execution: ProviderExecutionRow): string {
+  if (execution.provider === "twilio" && execution.operation === "voice.call.create") {
+    return "Outbound call initiated";
+  }
+
+  return `${formatIdentifier(execution.provider)} ${formatIdentifier(execution.operation)}`;
+}
+
+function providerExecutionDetail(execution: ProviderExecutionRow): string {
+  if (execution.last_error) {
+    return execution.last_error;
+  }
+
+  if (execution.provider === "twilio" && execution.operation === "voice.call.create") {
+    return execution.provider_execution_id
+      ? "Twilio accepted the approved test call and returned a real Call SID."
+      : "Approved call attempt recorded; no provider Call SID was returned.";
+  }
+
+  return `Attempts: ${execution.attempts}`;
+}
+
+function auditTitle(audit: AuditRow): string {
+  if (audit.action === "cp4.approval.approved") {
+    return "Human approval recorded";
+  }
+
+  if (audit.action === "product.action_outcome.recorded") {
+    return "Outcome memory saved";
+  }
+
+  return formatIdentifier(audit.action);
+}
+
+function auditDetail(audit: AuditRow): string {
+  if (audit.action === "cp4.approval.approved") {
+    return "Approval state changed in Aurora before any provider execution.";
+  }
+
+  if (audit.action === "product.action_outcome.recorded") {
+    return "Outcome was recorded and converted into customer memory evidence.";
+  }
+
+  return `${audit.target_type}${audit.target_id ? ` ${audit.target_id}` : ""}`;
+}
+
+function memoryTitle(memory: MemoryActivityRow): string {
+  if (memory.source_type === "voice_call" || memory.source_type === "voice_transcript") {
+    return "Call memory captured";
+  }
+
+  return "Customer memory updated";
 }
 
 function groupCheckpointsByRun(checkpoints: AgentCheckpointRow[]): Map<string, AgentCheckpointRow[]> {

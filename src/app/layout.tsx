@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "@/styles/globals.css";
 
 export const metadata: Metadata = {
-  title: "Agentic Cashflow Management",
-  description: "Operational cash management cockpit for SMB collections and runway decisions."
+  title: "RunwayOps Cashflow",
+  description: "Approval-gated cashflow assistant for collections, runway planning, and customer outreach."
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className="bg-[#050914] antialiased">{children}</body>
     </html>
   );
 }

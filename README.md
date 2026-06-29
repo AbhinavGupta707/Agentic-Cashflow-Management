@@ -39,6 +39,15 @@ Checkpoint 2 QA/runbook coverage is in progress on the CP2 lanes:
 - CP2 focuses on live upload/manual ingestion, S3 source storage, Aurora
   provenance, event inbox processing, and no-key/live smoke verification.
 
+Checkpoint 3 orchestration and QA contract coverage is documented in:
+
+- `docs/checkpoint-3-orchestration.md`
+- `docs/checkpoint-3-status.md`
+- CP3 focuses on deterministic forecasting from Aurora facts, LangGraph
+  persisted runs/checkpoints, Fireworks no-key/live provider posture, LangSmith
+  trace posture, and approval-ready action handoff without Gmail or voice
+  execution.
+
 ## Fresh Clone Setup
 
 Clone only the canonical repository:
@@ -80,8 +89,18 @@ foundation:
 npm run check:cp2
 ```
 
-Live CP2 upload and processor smoke requires Aurora and S3 env. Fireworks,
-LangSmith, Gmail, ElevenLabs, and Twilio keys are not required for CP2.
+Checkpoint 3 adds an offline contract check for the forecast/action/agent
+handoff foundation:
+
+```bash
+npm run check:cp3
+```
+
+Live CP2 upload and processor smoke requires Aurora and S3 env. Live CP3
+deterministic forecast smoke requires Aurora env. Fireworks and LangSmith keys
+are optional CP3 live-provider checks; missing keys must produce honest
+unavailable/tracing-disabled states instead of fake provider success. Gmail,
+ElevenLabs, and Twilio keys are not required for CP3.
 
 Live migration, seed, and smoke commands require Aurora Data API credentials.
 Without local AWS credentials or required Aurora settings, scripts should fail

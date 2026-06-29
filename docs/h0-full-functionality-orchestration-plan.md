@@ -75,6 +75,44 @@ AWS runtime role ARN: arn:aws:iam::222634407676:role/h0-cash-management-vercel-r
 
 Run sequential checkpoints. Within each checkpoint, use 2 to 4 parallel lanes. Do not launch future checkpoints until the current checkpoint is merged, reviewed, verified, and documented.
 
+## Codex Worktree Routing
+
+Use native Codex-managed worktree sessions for checkpoint lanes when possible. The repository lives under a parent folder that is also visible in the Codex project list, so creating ordinary project threads from the parent `Cash Management` project can produce sidebar sessions without the worktree marker.
+
+For checkpoint 2 and later:
+
+1. Start from an existing thread whose `cwd` is exactly:
+
+   ```text
+   /Users/abhinavgupta/Desktop/H0 AWS Hack/Cash Management /Agentic-Cashflow-Management
+   ```
+
+2. Fork that thread with `environment: { type: "worktree" }`.
+3. Rename the child thread to the lane name.
+4. Send the lane prompt to the child thread.
+5. Verify the child thread `cwd` starts with:
+
+   ```text
+   /Users/abhinavgupta/.codex/worktrees/
+   ```
+
+6. Verify `git remote -v` points only to:
+
+   ```text
+   https://github.com/AbhinavGupta707/Agentic-Cashflow-Management.git
+   ```
+
+7. Leave worker threads unpinned.
+
+Route verification completed on 2026-06-29:
+
+```text
+Source exact-root thread: 019f10a4-ebad-79a1-aa27-c9f96d86caf8
+Verification worktree thread: 019f10d2-3645-7ed3-9814-1bc552776d5f
+Verification worktree path: /Users/abhinavgupta/.codex/worktrees/5d35/Agentic-Cashflow-Management
+Verified commit: 6cfa79c fix: support live rds data api seed parameters
+```
+
 ### Checkpoint 0: Setup And Repository Boundary
 
 Outcome:

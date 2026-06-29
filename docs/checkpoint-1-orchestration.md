@@ -86,6 +86,36 @@ Kind: heartbeat
 Reason: chat heartbeats are not reliable for long-running active orchestration turns
 ```
 
+## Native Worktree Routing For Checkpoint 2
+
+Checkpoint 1 workers were real filesystem `git worktree` checkouts, but they were started as ordinary Codex threads under the parent `Cash Management` project. That is why they did not show the Codex worktree marker in the sidebar.
+
+For checkpoint 2, use native Codex worktree forking from an exact repository-root thread. Do not create lane threads from the parent folder project.
+
+Verified source thread:
+
+```text
+019f10a4-ebad-79a1-aa27-c9f96d86caf8
+cwd: /Users/abhinavgupta/Desktop/H0 AWS Hack/Cash Management /Agentic-Cashflow-Management
+```
+
+Verification fork:
+
+```text
+Thread: 019f10d2-3645-7ed3-9814-1bc552776d5f
+cwd: /Users/abhinavgupta/.codex/worktrees/5d35/Agentic-Cashflow-Management
+remote: https://github.com/AbhinavGupta707/Agentic-Cashflow-Management.git
+commit: 6cfa79c fix: support live rds data api seed parameters
+```
+
+Required launch pattern:
+
+1. Fork the exact-root source thread with `environment: { type: "worktree" }`.
+2. Rename the fork to the lane title.
+3. Send the lane prompt to the fork.
+4. Verify the fork `cwd` is under `/Users/abhinavgupta/.codex/worktrees/`.
+5. Keep worker threads unpinned.
+
 ## Checkpoint 1 Outcome
 
 Integrated checkpoint 1 state:

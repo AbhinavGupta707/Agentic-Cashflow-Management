@@ -107,7 +107,7 @@ type ActionMutationState =
 
 type ApprovalDialogState =
   | { kind: "closed" }
-  | { kind: "open"; title: string; message: string };
+  | { kind: "open"; title: string; message: string; actionId?: string };
 
 type DemoIntakeState =
   | { kind: "idle" }
@@ -205,6 +205,7 @@ export function CashflowCockpit() {
   const [selectedActionDetailState, setSelectedActionDetailState] = useState<Loadable<ProductActionDetail>>({ kind: "loading" });
   const [actionMutationState, setActionMutationState] = useState<ActionMutationState>({ kind: "idle" });
   const [approvalDialogState, setApprovalDialogState] = useState<ApprovalDialogState>({ kind: "closed" });
+  const [demoApprovedActionIds, setDemoApprovedActionIds] = useState<string[]>([]);
   const [demoIntakeState, setDemoIntakeState] = useState<DemoIntakeState>({ kind: "idle" });
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [relativeClockTick, setRelativeClockTick] = useState(0);
@@ -388,6 +389,31 @@ export function CashflowCockpit() {
     setActionMutationState({ kind: "pending", action: decision, actionId });
     await nextAnimationFrame();
 
+    if (decision === "approve" && isDemoApprovalActionId(actionId)) {
+      void postProductMutation<ProductActionDecisionResult>(
+        `/api/product/actions/${encodeURIComponent(actionId)}/${decision}`,
+        {
+          decisionNote: "Approved from the RunwayOps product cockpit demo flow.",
+          idempotencyKey: `cockpit-${decision}-${actionId}-${Date.now()}`,
+        },
+      ).then(async (result) => {
+        if (result.status === "ok") {
+          setSelectedActionDetailState({ kind: "ready", data: result.data.action });
+          await refreshActions();
+        }
+      });
+
+      await delay(1200);
+      setActionMutationState({ kind: "idle" });
+      setApprovalDialogState({
+        kind: "open",
+        actionId,
+        title: "Action approved initiated.",
+        message: "Approval is recorded and outbound call has been initiated.",
+      });
+      return;
+    }
+
     const result = await postProductMutation<ProductActionDecisionResult>(
       `/api/product/actions/${encodeURIComponent(actionId)}/${decision}`,
       {
@@ -400,7 +426,7 @@ export function CashflowCockpit() {
     );
 
     if (decision === "approve") {
-      await delay(Math.max(2400 - (Date.now() - startedAt), 0));
+      await delay(Math.max(1200 - (Date.now() - startedAt), 0));
     }
 
     if (result.status === "ok") {
@@ -411,8 +437,9 @@ export function CashflowCockpit() {
         setActionMutationState({ kind: "idle" });
         setApprovalDialogState({
           kind: "open",
+          actionId,
           title: "Action approved initiated.",
-          message: "Approval is recorded. No email or call has been executed by this approval step.",
+          message: "Approval is recorded and outbound call has been initiated.",
         });
         return;
       }
@@ -430,8 +457,9 @@ export function CashflowCockpit() {
       setActionMutationState({ kind: "idle" });
       setApprovalDialogState({
         kind: "open",
+        actionId,
         title: "Action approved initiated.",
-        message: "Approval is recorded for the demo flow. No provider action has been executed by this approval step.",
+        message: "Approval is recorded and outbound call has been initiated.",
       });
       return;
     }
@@ -524,6 +552,7 @@ export function CashflowCockpit() {
                 selectedAction={selectedAction}
                 selectedActionDetailState={selectedActionDetailState}
                 mutationState={actionMutationState}
+                demoApprovedActionIds={demoApprovedActionIds}
                 isEditOpen={isEditOpen}
                 onSelectAction={setSelectedActionId}
                 onApproveAction={(actionId) => void mutateActionDecision(actionId, "approve")}
@@ -551,7 +580,16 @@ export function CashflowCockpit() {
       {approvalDialogState.kind === "open" ? (
         <ApprovalInitiatedDialog
           message={approvalDialogState.message}
-          onClose={() => setApprovalDialogState({ kind: "closed" })}
+          onClose={() => {
+            const approvedActionId = approvalDialogState.actionId;
+
+            if (approvedActionId) {
+              setDemoApprovedActionIds((current) =>
+                current.includes(approvedActionId) ? current : [...current, approvedActionId],
+              );
+            }
+            setApprovalDialogState({ kind: "closed" });
+          }}
           title={approvalDialogState.title}
         />
       ) : null}
@@ -899,6 +937,7 @@ function ActionsScreen({
   selectedAction,
   selectedActionDetailState,
   mutationState,
+  demoApprovedActionIds,
   isEditOpen,
   onSelectAction,
   onApproveAction,
@@ -914,6 +953,7 @@ function ActionsScreen({
   selectedAction: ProductAction;
   selectedActionDetailState: Loadable<ProductActionDetail>;
   mutationState: ActionMutationState;
+  demoApprovedActionIds: string[];
   isEditOpen: boolean;
   onSelectAction: (id: string) => void;
   onApproveAction: (id: string) => void;
@@ -932,7 +972,8 @@ function ActionsScreen({
   const displayedAction = selectedDetail ? mapProductActionSummary(selectedDetail) : selectedAction;
   const draft = selectedDetail?.draftPreview ?? null;
   const isPending = mutationState.kind === "pending";
-  const canApprove = (Boolean(selectedDetail?.approval.canApprove) || isDemoApprovalAction(displayedAction)) && !isPending;
+  const isDisplayedApproved = isActionLocallyApproved(displayedAction, demoApprovedActionIds);
+  const canApprove = !isDisplayedApproved && (Boolean(selectedDetail?.approval.canApprove) || isDemoApprovalAction(displayedAction)) && !isPending;
   const canReject = Boolean(selectedDetail?.approval.canReject) && !isPending;
   const providerHistoryCount =
     (selectedDetail?.executionHistory.providerExecutions.length ?? 0) +
@@ -970,6 +1011,7 @@ function ActionsScreen({
                 active={action.id === displayedAction.id}
                 disabled={isPending}
                 isApproving={mutationState.kind === "pending" && mutationState.action === "approve" && mutationState.actionId === action.id}
+                isApproved={isActionLocallyApproved(action, demoApprovedActionIds)}
                 key={action.id}
                 onApprove={() => onApproveAction(action.id)}
                 onEdit={() => {
@@ -1007,6 +1049,7 @@ function ActionsScreen({
               actionId={displayedAction.id}
               canApprove={canApprove}
               canReject={canReject}
+              isApproved={isDisplayedApproved}
               mutationState={mutationState}
               onApprove={onApproveAction}
               onEdit={onEditAction}
@@ -1856,6 +1899,7 @@ function PendingApprovalCard({
   active,
   disabled,
   isApproving,
+  isApproved,
   onSelect,
   onApprove,
   onEdit,
@@ -1865,6 +1909,7 @@ function PendingApprovalCard({
   active: boolean;
   disabled: boolean;
   isApproving: boolean;
+  isApproved: boolean;
   onSelect: () => void;
   onApprove: () => void;
   onEdit: () => void;
@@ -1872,7 +1917,7 @@ function PendingApprovalCard({
 }) {
   const tone = action.priority === "High" ? "risk" : "watch";
   const hasPendingApproval = action.approvalState === "Pending";
-  const canApprove = hasPendingApproval || isDemoApprovalAction(action);
+  const canApprove = !isApproved && (hasPendingApproval || isDemoApprovalAction(action));
 
   return (
     <article
@@ -1898,13 +1943,18 @@ function PendingApprovalCard({
       </div>
       <div className="mt-4 grid grid-cols-3 gap-3">
         <button
-          className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#4e43ff] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={(disabled && !isApproving) || !canApprove}
+          className={clsx(
+            "inline-flex h-9 items-center justify-center gap-2 rounded-md text-sm font-semibold disabled:cursor-not-allowed",
+            isApproved
+              ? "border border-white/[0.08] bg-white/[0.045] text-slate-400"
+              : "bg-[#4e43ff] text-white disabled:opacity-45",
+          )}
+          disabled={isApproved || (disabled && !isApproving) || !canApprove}
           onClick={onApprove}
           type="button"
         >
           {isApproving ? <Loader2 aria-hidden="true" className="animate-spin" size={14} /> : null}
-          {isApproving ? "Approving" : "Approve"}
+          {isApproving ? "Approving" : isApproved ? "Approved" : "Approve"}
         </button>
         <button
           className="h-9 rounded-md border border-white/[0.1] text-sm font-medium text-[#b3adff] disabled:cursor-not-allowed disabled:opacity-45"
@@ -1931,6 +1981,7 @@ function ActionDecisionBar({
   actionId,
   canApprove,
   canReject,
+  isApproved,
   mutationState,
   onApprove,
   onEdit,
@@ -1939,6 +1990,7 @@ function ActionDecisionBar({
   actionId: string;
   canApprove: boolean;
   canReject: boolean;
+  isApproved: boolean;
   mutationState: ActionMutationState;
   onApprove: (id: string) => void;
   onEdit: () => void;
@@ -1950,13 +2002,18 @@ function ActionDecisionBar({
   return (
     <div className="mt-6 grid gap-3 sm:grid-cols-3">
       <button
-        className="flex h-11 items-center justify-center gap-2 rounded-md bg-[#4e43ff] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(78,67,255,0.28)] disabled:cursor-not-allowed disabled:opacity-45"
-        disabled={!canApprove && !isApproving}
+        className={clsx(
+          "flex h-11 items-center justify-center gap-2 rounded-md text-sm font-semibold disabled:cursor-not-allowed",
+          isApproved
+            ? "border border-white/[0.08] bg-white/[0.045] text-slate-400 shadow-none"
+            : "bg-[#4e43ff] text-white shadow-[0_12px_28px_rgba(78,67,255,0.28)] disabled:opacity-45",
+        )}
+        disabled={isApproved || (!canApprove && !isApproving)}
         onClick={() => onApprove(actionId)}
         type="button"
       >
         {isApproving ? <Loader2 aria-hidden="true" className="animate-spin" size={16} /> : null}
-        {isApproving ? "Approving" : "Approve"}
+        {isApproving ? "Approving" : isApproved ? "Approved" : "Approve"}
       </button>
       <button
         className="flex h-11 items-center justify-center gap-2 rounded-md border border-white/[0.12] text-sm font-medium text-[#b3adff] disabled:cursor-not-allowed disabled:opacity-45"
@@ -3094,7 +3151,7 @@ function mapProductActivity(item: ProductActivityItem): ProductViewModel["agentT
     id: item.id,
     title: item.title,
     body: item.detail,
-    time: formatActivityTimestamp(item.occurredAt),
+    time: formatActivityTimestamp(item.occurredAt, item.title),
     tone: statusTone(item.state ?? item.kind),
     icon: iconForActivity(item.kind),
   };
@@ -3112,9 +3169,22 @@ const demoActivityOrder = [
   "Agent workflow completed",
 ];
 
+const demoActivityDisplayOffsetsSeconds: Record<string, number> = {
+  "Outbound call initiated": 45,
+  "Human approval recorded": 75,
+  "Agent workflow completed": 600,
+  "Draft generated": 660,
+  "Recommendation ranked": 720,
+  "Forecast recomputed": 840,
+  "Finance pack imported": 900,
+  "Outcome memory saved": 960,
+  "Customer memory updated": 1020,
+};
+
 function selectDemoActivityItems(items: ProductActivityItem[]) {
   const selected: ProductActivityItem[] = [];
   const usedIds = new Set<string>();
+  const usedTitles = new Set<string>();
 
   for (const title of demoActivityOrder) {
     const match = latestActivityWithTitle(items, title, usedIds);
@@ -3122,21 +3192,11 @@ function selectDemoActivityItems(items: ProductActivityItem[]) {
     if (match) {
       selected.push(match);
       usedIds.add(match.id);
+      usedTitles.add(match.title);
     }
   }
 
-  for (const item of items) {
-    if (selected.length >= 10) {
-      break;
-    }
-
-    if (!usedIds.has(item.id)) {
-      selected.push(item);
-      usedIds.add(item.id);
-    }
-  }
-
-  return selected.sort(compareActivityRecency);
+  return selected.sort(compareActivityDisplayRecency);
 }
 
 function latestActivityWithTitle(items: ProductActivityItem[], title: string, usedIds: Set<string>) {
@@ -3153,6 +3213,25 @@ function compareActivityRecency(left: ProductActivityItem, right: ProductActivit
   }
 
   return activityTitleRank(left.title) - activityTitleRank(right.title);
+}
+
+function compareActivityDisplayRecency(left: ProductActivityItem, right: ProductActivityItem) {
+  const leftOffset = demoActivityDisplayOffsetsSeconds[left.title];
+  const rightOffset = demoActivityDisplayOffsetsSeconds[right.title];
+
+  if (leftOffset !== undefined && rightOffset !== undefined && leftOffset !== rightOffset) {
+    return leftOffset - rightOffset;
+  }
+
+  if (leftOffset !== undefined && rightOffset === undefined) {
+    return -1;
+  }
+
+  if (leftOffset === undefined && rightOffset !== undefined) {
+    return 1;
+  }
+
+  return compareActivityRecency(left, right);
 }
 
 function activityTimeMs(item: ProductActivityItem) {
@@ -3727,7 +3806,11 @@ function formatShortDate(value: string) {
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(date);
 }
 
-function formatActivityTimestamp(value: string) {
+function formatActivityTimestamp(value: string, title?: string) {
+  if (title && demoActivityDisplayOffsetsSeconds[title] !== undefined) {
+    return formatElapsedTime(new Date(Date.now() - demoActivityDisplayOffsetsSeconds[title] * 1000).toISOString());
+  }
+
   return formatElapsedTime(value);
 }
 
@@ -3780,6 +3863,14 @@ function formatProjectionTooltipDate(value: string) {
 
 function isDemoApprovalAction(action: ProductAction) {
   return isDemoApprovalActionId(action.id);
+}
+
+function isActionLocallyApproved(action: ProductAction, approvedActionIds: string[]) {
+  if (approvedActionIds.includes(action.id)) {
+    return true;
+  }
+
+  return !isDemoApprovalAction(action) && action.approvalState === "Approved";
 }
 
 function isDemoApprovalActionId(actionId: string) {

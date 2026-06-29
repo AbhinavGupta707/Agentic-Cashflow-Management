@@ -5,10 +5,11 @@ Date: 2026-06-29
 Checkpoint: CP5 approval-gated voice execution and CP6 live product cockpit
 replacement.
 
-Status: QA/docs lane added deterministic offline checks and no-key smokes. At
-this lane base, CP5/CP6 runtime and product API implementation may still be
-landing in adjacent lanes, so route readiness is reported as pending unless
-strict route mode is enabled.
+Status: Integrated on `main`. The CP5/CP6 worker lanes were merged, the product
+UI was wired to the live `/api/product/*` surface, strict route checks pass, and
+desktop/mobile browser QA screenshots were captured. Live Aurora verification is
+blocked only by the local AWS session expiring; the app reports that state
+honestly instead of falling back to fake data.
 
 ## Scope
 
@@ -67,8 +68,8 @@ or the Aurora Data API.
   keywords are checked.
 
 By default, missing CP6 product routes are reported as pending adjacent-lane
-work and do not fail this isolated QA/docs lane. During integration, run strict
-mode to require every product route:
+work and do not fail an isolated QA/docs lane. During integration and release
+verification, run strict mode to require every product route:
 
 ```bash
 CP6_REQUIRE_PRODUCT_ROUTES=true npm run check:cp6
@@ -77,11 +78,13 @@ CP6_REQUIRE_PRODUCT_ROUTES=true npm run check:cp6
 `npm run smoke:voice:no-key` verifies:
 
 - missing Twilio env produces unavailable/no-key state.
+- `TWILIO_PHONE_NUMBER` is accepted as the supported from-number alias for
+  local setup, alongside `TWILIO_FROM_NUMBER`.
 - missing ElevenLabs env produces unavailable/no-key state.
-- pending approval blocks voice provider execution before any call row or
-  provider ID exists.
-- approved no-key voice execution records provider unavailable without
-  fabricating a provider execution ID or call ID.
+- present-but-unvalidated ElevenLabs keys remain disabled unless remote
+  validation is explicitly requested.
+- voice readiness publishes approval/test-target guardrails.
+- no fake provider execution ID or call ID is produced.
 
 `npm run smoke:product:no-key` verifies:
 
@@ -117,14 +120,16 @@ Optional for Twilio live voice status smoke:
 
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
-- `TWILIO_FROM_PHONE_NUMBER`
-- `TWILIO_TEST_TO_PHONE` for live call smoke only
+- `TWILIO_FROM_NUMBER` or `TWILIO_PHONE_NUMBER`
+- `TWILIO_TWIML_URL`
+- `TWILIO_TEST_TO_NUMBER` for live call smoke only
 
 Optional for ElevenLabs status smoke:
 
 - `ELEVENLABS_API_KEY`
 - `ELEVENLABS_AGENT_ID`
-- `ELEVENLABS_VOICE_ID`
+- `ELEVENLABS_AGENT_PHONE_NUMBER_ID`
+- `ELEVENLABS_MODEL_ID`
 
 Do not commit, print, or paste secret values. Local values belong in
 `.env.local`; deployment values belong in the Vercel project environment.
@@ -152,9 +157,9 @@ LangSmith:
 Twilio:
 
 1. Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and
-   `TWILIO_FROM_PHONE_NUMBER`.
+   `TWILIO_FROM_NUMBER` or `TWILIO_PHONE_NUMBER`.
 2. Run a provider status smoke first; it must not place a call.
-3. Only if `TWILIO_TEST_TO_PHONE` is explicit and a human approves the action,
+3. Only if `TWILIO_TEST_TO_NUMBER` is explicit and a human approves the action,
    run exactly one live outbound call smoke.
 4. Persist the real Twilio call/provider IDs returned by Twilio. Do not invent
    IDs if Twilio fails.
@@ -239,6 +244,48 @@ npm run agent:smoke
 
 Run live Twilio/Gmail/provider execution smokes only with explicit credentials,
 an explicit test recipient or phone number, and recorded human approval.
+
+## Final Master Verification
+
+Completed on 2026-06-29 from the canonical repository root.
+
+Passed:
+
+- `npm run typecheck`
+- `npm run build`
+- `npm run check:cp2`
+- `npm run check:cp3`
+- `npm run check:cp4`
+- `npm run check:cp5`
+- `CP6_REQUIRE_PRODUCT_ROUTES=true npm run check:cp6`
+- `npm run smoke:agent:no-key`
+- `npm run smoke:gmail:no-key`
+- `npm run smoke:cp4:runtime:no-key`
+- `npm run smoke:voice:no-key`
+- `npm run smoke:product:no-key`
+- `npm run forecast:dry`
+- `git diff --check`
+
+Browser QA:
+
+- In-app Browser backend was unavailable in this Codex project runtime, so QA
+  used Chrome headless against the real local app at `http://localhost:3000`.
+- Desktop screenshot: `/private/tmp/h0-cp56-desktop-fixed.png`.
+- True mobile device-emulation screenshot:
+  `/private/tmp/h0-cp56-mobile-cdp.png`.
+- Mobile DevTools metrics reported `innerWidth=390`, `docScroll=390`, and
+  `bodyScroll=390`, confirming no horizontal overflow.
+
+Live provider/Aurora notes:
+
+- `.env.local` contains Fireworks, LangSmith, Twilio, Aurora, Gmail, and
+  ElevenLabs key names without committing values.
+- `npm run db:check-data-api` failed with `Your session has expired. Please
+  reauthenticate.` This is an AWS session/authentication blocker, not a code
+  integration failure.
+- `ELEVENLABS_AGENT_ID` is currently empty in `.env.local`; ElevenLabs remains
+  disabled/unavailable until that value is provided and remote validation
+  succeeds.
 
 ## Guardrails
 

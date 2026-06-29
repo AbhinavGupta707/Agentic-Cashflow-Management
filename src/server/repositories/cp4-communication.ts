@@ -800,7 +800,7 @@ async function findActionContext(
         round(a.expected_cash_impact * 100)::bigint as expected_cash_impact_cents,
         a.currency_code::text as currency_code,
         co.id as company_id,
-        co.name as company_name,
+        coalesce(co.trading_name, co.legal_name) as company_name,
         co.external_id as company_external_id,
         c.id as customer_id,
         c.external_id as customer_external_id,

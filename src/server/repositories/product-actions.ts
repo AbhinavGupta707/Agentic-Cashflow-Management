@@ -1287,9 +1287,11 @@ function buildProviderState(options: RepositoryOptions): ProductProviderState {
   const now = new Date();
   const env = options.env ?? process.env;
   const fireworksProvider = options.fireworksProvider ?? createFireworksProvider({ env });
-  const voiceMissing = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER"].filter(
-    (key) => !present(env[key]),
-  );
+  const voiceMissing = ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"].filter((key) => !present(env[key]));
+
+  if (!present(env.TWILIO_FROM_NUMBER) && !present(env.TWILIO_PHONE_NUMBER)) {
+    voiceMissing.push("TWILIO_FROM_NUMBER", "TWILIO_PHONE_NUMBER");
+  }
 
   return {
     fireworks: fireworksProvider.getStatus(now),
@@ -1333,7 +1335,7 @@ async function resolveCompanyScope(
       select
         id as company_id,
         tenant_id,
-        name as company_name,
+        coalesce(trading_name, legal_name) as company_name,
         external_id as company_external_id,
         base_currency::text as base_currency
       from companies

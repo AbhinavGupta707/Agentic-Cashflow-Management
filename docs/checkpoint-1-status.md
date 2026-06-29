@@ -242,6 +242,7 @@ Integrated status:
 - Demo seed writes tenant, company, cash account, source/import provenance, customers, contacts, invoices, obligations, forecast points, action approvals, and memory facts.
 - Repository scripts load `.env.local` automatically.
 - Verified in the orchestration shell: `npm install`, `npm run typecheck`, `npm run build`, `npm run db:migrate:dry-run`, `npm run db:seed:dry-run`, and `git diff --check` all passed.
-- `npm run db:check-data-api` and `npm run smoke` both stop with a clear missing-env error until `AWS_REGION`, `AURORA_CLUSTER_ARN`, `AURORA_SECRET_ARN`, and `AURORA_DATABASE` are provided.
+- Live CP1 proof passed on 2026-06-29 after `aws login`: `npm run db:check-data-api`, `npm run db:migrate`, `npm run db:seed`, and `npm run smoke`.
+- Local Next route proof passed: `GET /api/current-case` returned `status: ok` with the seeded company, 3 customers, 3 invoices, 2 obligations, 4 forecast points, 2 recommended actions, and 2 memory facts.
 - Runtime denylist scan for external legacy repository and MongoDB references in runtime paths returned no matches.
-- Checkpoint 2 remains paused until live `db:migrate`, `db:seed`, and `smoke` are run and recorded.
+- Checkpoint 2 can proceed from the CP1 foundation.

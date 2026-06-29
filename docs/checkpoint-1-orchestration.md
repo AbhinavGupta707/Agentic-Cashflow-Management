@@ -110,7 +110,7 @@ Integration patch status:
 - Schema, seed, and repository read-model contracts were reconciled around the multi-tenant Aurora schema.
 - CLI scripts load `.env.local`/`.env`.
 - `npm run db:migrate:dry` and `npm run db:seed:dry` pass without live AWS env.
-- `npm run smoke` intentionally exits with a missing-env configuration error until local Aurora credentials are provided.
+- Live `npm run db:check-data-api`, `npm run db:migrate`, `npm run db:seed`, and `npm run smoke` passed after local `aws login`.
 
 Verification record:
 
@@ -119,16 +119,19 @@ Verification record:
 - `npm run build` - passed
 - `npm run db:migrate:dry-run` - passed; `0001_core_cash_management_schema.sql` parsed as 116 statements
 - `npm run db:seed:dry-run` - passed; demo payload summary reported 3 customers, 3 contacts, 3 invoices, 2 obligations, 4 forecast points, 2 actions, and 2 memory facts
-- `npm run db:check-data-api` - failed honestly because `AWS_REGION`, `AURORA_CLUSTER_ARN`, `AURORA_SECRET_ARN`, and `AURORA_DATABASE` were not set in the orchestration shell
-- `npm run smoke` - failed honestly for the same missing Aurora env
+- `npm run db:check-data-api` - passed against `cash_management`
+- `npm run db:migrate` - passed; applied `0001_core_cash_management_schema.sql`
+- `npm run db:seed` - passed; seeded `cmp_marlow_finch` / `case_payroll_2026_05_08`
+- `npm run smoke` - passed; read 3 customers, 3 invoices, 2 obligations, 4 forecast points, 2 actions, and 2 memory facts from Aurora
+- `GET /api/current-case` through local Next dev server - passed with `status: ok`
 - `git diff --check` - passed
 - runtime denylist scan for external legacy repository and MongoDB references in runtime paths - no matches
 
 Checkpoint verdict:
 
 - Checkpoint 1 is merged, build-verified, and documented on `main`.
-- Live Aurora verification is still pending a shell or deployment context with the required Aurora env values.
-- Checkpoint 2 remains paused until live `db:migrate`, `db:seed`, and `smoke` are run and recorded.
+- Live Aurora verification passed in the local shell using `aws login` credentials and `.env.local`.
+- Checkpoint 2 can proceed from the CP1 foundation.
 
 ## Lane Split
 

@@ -174,11 +174,12 @@ export function createAuroraDataApiClient(config?: DataApiConfig): AuroraDataApi
 function toSqlParameters(params: DataApiParams): SqlParameter[] {
   return Object.entries(params).map(([name, rawParam]) => {
     const normalized = normalizeParam(rawParam);
+    const typeHint = normalized.typeHint ?? inferTypeHint(normalized.value);
 
     return {
       name,
-      value: toField(normalized.value),
-      typeHint: normalized.typeHint,
+      value: toField(coerceValueForTypeHint(normalized.value, typeHint)),
+      typeHint,
     };
   });
 }
@@ -192,6 +193,50 @@ function normalizeParam(param: DataApiParam): { value: DataApiScalar; typeHint?:
 }
 
 type DataApiParamTypeHint = Exclude<DataApiParam, DataApiScalar>["typeHint"];
+
+function inferTypeHint(value: DataApiScalar): DataApiParamTypeHint | undefined {
+  if (value instanceof Date) {
+    return "TIMESTAMP";
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    return "UUID";
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return "DATE";
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) {
+    return "TIMESTAMP";
+  }
+
+  return undefined;
+}
+
+function coerceValueForTypeHint(value: DataApiScalar, typeHint: DataApiParamTypeHint | undefined): DataApiScalar {
+  if (typeHint !== "TIMESTAMP") {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return formatDataApiTimestamp(value);
+  }
+
+  if (typeof value === "string" && value.endsWith("Z")) {
+    return formatDataApiTimestamp(new Date(value));
+  }
+
+  return value;
+}
+
+function formatDataApiTimestamp(value: Date): string {
+  return value.toISOString().replace("T", " ").replace("Z", "");
+}
 
 function toField(value: DataApiScalar): Field {
   if (value === null) {

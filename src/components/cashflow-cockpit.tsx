@@ -1,6 +1,6 @@
 "use client";
 
-import { type ComponentType, useEffect, useState } from "react";
+import { type ComponentType, type FormEvent, useEffect, useState } from "react";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -11,14 +11,21 @@ import {
   CircleDollarSign,
   ClipboardCheck,
   DatabaseZap,
+  FileInput,
+  FilePlus2,
   FileText,
+  Inbox,
   LineChart,
+  Loader2,
   MailCheck,
+  RefreshCw,
   ShieldCheck,
+  UploadCloud,
 } from "lucide-react";
 
 import { DataState, UpdatedAt } from "@/components/data-state";
 import type { CompanyCaseState, CurrentCaseApiResponse } from "@/server/db/case-state-contract";
+import type { IngestionStatusApiResponse, IngestionStatusState } from "@/server/db/ingestion-status-contract";
 
 type CockpitState =
   | { kind: "loading" }
@@ -26,8 +33,41 @@ type CockpitState =
   | { kind: "error"; message: string }
   | { kind: "ready"; data: CompanyCaseState };
 
+type IngestionPanelState =
+  | { kind: "loading" }
+  | { kind: "unavailable"; message: string; missingEnv: string[] }
+  | { kind: "error"; message: string }
+  | { kind: "ready"; data: IngestionStatusState };
+
+type UploadPanelState =
+  | { kind: "idle"; message: string }
+  | { kind: "uploading"; message: string }
+  | { kind: "success"; message: string }
+  | { kind: "unavailable"; message: string }
+  | { kind: "error"; message: string };
+
+const SOURCE_KIND_OPTIONS = [
+  { value: "invoice_csv", label: "Invoice CSV" },
+  { value: "invoice_pdf", label: "Invoice PDF" },
+  { value: "customer_csv", label: "Customer CSV" },
+  { value: "obligation_csv", label: "Obligation CSV" },
+  { value: "bank_csv", label: "Bank CSV" },
+  { value: "manual_upload", label: "Manual upload" },
+] as const;
+
+const IMPORT_KIND_OPTIONS = [
+  { value: "invoices", label: "Invoices" },
+  { value: "customers", label: "Customers" },
+  { value: "obligations", label: "Obligations" },
+  { value: "payments", label: "Payments" },
+  { value: "mixed", label: "Mixed" },
+] as const;
+
+const MANUAL_RECORD_OPTIONS = ["invoice", "customer", "obligation", "payment"] as const;
+
 export function CashflowCockpit() {
   const [state, setState] = useState<CockpitState>({ kind: "loading" });
+  const [ingestionState, setIngestionState] = useState<IngestionPanelState>({ kind: "loading" });
 
   useEffect(() => {
     let active = true;
@@ -80,6 +120,29 @@ export function CashflowCockpit() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadStatus() {
+      const nextState = await fetchIngestionStatus();
+
+      if (active) {
+        setIngestionState(nextState);
+      }
+    }
+
+    void loadStatus();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function refreshIngestionStatus() {
+    setIngestionState({ kind: "loading" });
+    setIngestionState(await fetchIngestionStatus());
+  }
+
   return (
     <main className="min-h-screen bg-ink-50 text-ink-900">
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-5 sm:px-6 lg:px-8">
@@ -120,7 +183,13 @@ export function CashflowCockpit() {
         {state.kind === "loading" ? <LoadingShell /> : null}
         {state.kind === "unavailable" ? <UnavailableShell state={state} /> : null}
         {state.kind === "error" ? <ErrorShell state={state} /> : null}
-        {state.kind === "ready" ? <ReadyShell data={state.data} /> : null}
+        {state.kind === "ready" ? (
+          <ReadyShell
+            data={state.data}
+            ingestionState={ingestionState}
+            onRefreshIngestionStatus={refreshIngestionStatus}
+          />
+        ) : null}
       </div>
     </main>
   );
@@ -202,7 +271,15 @@ function ErrorShell({
   );
 }
 
-function ReadyShell({ data }: { data: CompanyCaseState }) {
+function ReadyShell({
+  data,
+  ingestionState,
+  onRefreshIngestionStatus,
+}: {
+  data: CompanyCaseState;
+  ingestionState: IngestionPanelState;
+  onRefreshIngestionStatus: () => void;
+}) {
   const overdueInvoices = data.invoices.filter((invoice) => invoice.status === "overdue");
   const approvalQueue = data.recommendedActions.filter((action) => action.approvalRequired);
   const openObligations = data.obligations.filter((obligation) => obligation.status !== "paid");
@@ -292,6 +369,8 @@ function ReadyShell({ data }: { data: CompanyCaseState }) {
 
       <section className="grid flex-1 gap-5 pb-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.8fr)]">
         <div className="space-y-5">
+          <OperationalIngestionPanel data={data} />
+
           <section className="rounded-lg border border-ink-100 bg-white p-5 shadow-panel">
             <div className="flex flex-col gap-3 border-b border-ink-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -385,6 +464,12 @@ function ReadyShell({ data }: { data: CompanyCaseState }) {
             variant="empty"
           />
 
+          <IngestionStatusPanel
+            caseData={data}
+            state={ingestionState}
+            onRefresh={onRefreshIngestionStatus}
+          />
+
           <ReadinessPanel cards={sourceCards} />
 
           <DataState
@@ -395,6 +480,441 @@ function ReadyShell({ data }: { data: CompanyCaseState }) {
         </aside>
       </section>
     </>
+  );
+}
+
+async function fetchIngestionStatus(): Promise<IngestionPanelState> {
+  try {
+    const response = await fetch("/api/ingestion-status", {
+      cache: "no-store",
+    });
+    const payload = (await response.json()) as IngestionStatusApiResponse;
+
+    if (payload.status === "ok") {
+      return { kind: "ready", data: payload.data };
+    }
+
+    if (payload.status === "unavailable") {
+      return {
+        kind: "unavailable",
+        message: payload.message,
+        missingEnv: payload.missingEnv,
+      };
+    }
+
+    return {
+      kind: "error",
+      message: payload.message,
+    };
+  } catch (error) {
+    return {
+      kind: "error",
+      message: error instanceof Error ? error.message : "Unable to load ingestion status.",
+    };
+  }
+}
+
+function OperationalIngestionPanel({ data }: { data: CompanyCaseState }) {
+  const [sourceKind, setSourceKind] = useState<(typeof SOURCE_KIND_OPTIONS)[number]["value"]>("invoice_csv");
+  const [importKind, setImportKind] = useState<(typeof IMPORT_KIND_OPTIONS)[number]["value"]>("invoices");
+  const [file, setFile] = useState<File | null>(null);
+  const [manualRecordKind, setManualRecordKind] = useState<(typeof MANUAL_RECORD_OPTIONS)[number]>("invoice");
+  const [uploadState, setUploadState] = useState<UploadPanelState>({
+    kind: "idle",
+    message: "Select a source file to enqueue it through the upload lane.",
+  });
+
+  async function submitUpload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!file) {
+      setUploadState({ kind: "error", message: "Choose a file before starting an upload." });
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("sourceKind", sourceKind);
+    formData.append("importKind", importKind);
+    formData.append("companyExternalId", data.company.externalId);
+    formData.append("caseId", data.caseId);
+
+    setUploadState({ kind: "uploading", message: `Uploading ${file.name} to the ingestion route.` });
+
+    try {
+      const response = await fetch("/api/uploads", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.status === 404 || response.status === 405) {
+        setUploadState({
+          kind: "unavailable",
+          message: "POST /api/uploads is not registered in this worktree yet. The control is ready for the upload/S3 lane contract.",
+        });
+        return;
+      }
+
+      const payload = (await readJsonSafely(response)) as { message?: string; status?: string } | null;
+
+      if (!response.ok) {
+        setUploadState({
+          kind: response.status === 501 ? "unavailable" : "error",
+          message: payload?.message ?? `Upload route returned HTTP ${response.status}.`,
+        });
+        return;
+      }
+
+      setUploadState({
+        kind: "success",
+        message: payload?.message ?? "Upload accepted. Refresh ingestion status after the upload lane writes source/import rows.",
+      });
+    } catch (error) {
+      setUploadState({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Upload request failed.",
+      });
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-ink-100 bg-white p-5 shadow-panel">
+      <div className="flex flex-col gap-3 border-b border-ink-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-ledger-blue">
+            <UploadCloud aria-hidden="true" size={18} />
+            <h2 className="text-base font-semibold text-ink-900">Ingestion controls</h2>
+          </div>
+          <p className="mt-1 text-sm leading-6 text-ink-500">
+            Upload source evidence into the current Aurora case, or stage manual records when that endpoint is registered.
+          </p>
+        </div>
+        <span className="inline-flex w-fit items-center gap-2 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-700">
+          {data.company.externalId}
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.72fr)]">
+        <form className="space-y-4" onSubmit={submitUpload}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1.5 text-sm font-medium text-ink-700">
+              Source kind
+              <select
+                className="h-10 rounded-md border border-ink-200 bg-white px-3 text-sm text-ink-900 focus:border-ink-900 focus:outline-none focus:ring-2 focus:ring-ink-900/10"
+                onChange={(event) => setSourceKind(event.target.value as typeof sourceKind)}
+                value={sourceKind}
+              >
+                {SOURCE_KIND_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-sm font-medium text-ink-700">
+              Import kind
+              <select
+                className="h-10 rounded-md border border-ink-200 bg-white px-3 text-sm text-ink-900 focus:border-ink-900 focus:outline-none focus:ring-2 focus:ring-ink-900/10"
+                onChange={(event) => setImportKind(event.target.value as typeof importKind)}
+                value={importKind}
+              >
+                {IMPORT_KIND_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label className="grid gap-2 text-sm font-medium text-ink-700">
+            Source file
+            <span className="flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-ink-300 bg-ink-50 px-4 py-5 text-center transition hover:border-ink-500">
+              <FileInput aria-hidden="true" className="text-ink-500" size={22} />
+              <span className="text-sm font-semibold text-ink-900">
+                {file ? file.name : "Choose CSV, PDF, or export file"}
+              </span>
+              <span className="text-xs text-ink-500">
+                {file ? formatBytes(file.size) : "File is sent as multipart FormData.file"}
+              </span>
+              <input
+                className="sr-only"
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                type="file"
+              />
+            </span>
+          </label>
+
+          <div className="grid gap-3 rounded-md border border-ink-100 bg-ink-50 p-3 text-xs text-ink-600 sm:grid-cols-2">
+            <p>
+              <span className="font-semibold text-ink-900">Case</span>
+              <br />
+              {data.caseId}
+            </p>
+            <p>
+              <span className="font-semibold text-ink-900">Normalized targets</span>
+              <br />
+              {data.invoices.length} invoices, {data.customers.length} customers, {data.obligations.length} obligations
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <UploadFeedback state={uploadState} />
+            <button
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-ink-900 px-4 text-sm font-medium text-white transition hover:bg-ink-700 focus:outline-none focus:ring-2 focus:ring-ink-900 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-ink-300"
+              disabled={uploadState.kind === "uploading"}
+              type="submit"
+            >
+              {uploadState.kind === "uploading" ? (
+                <Loader2 aria-hidden="true" className="animate-spin" size={16} />
+              ) : (
+                <UploadCloud aria-hidden="true" size={16} />
+              )}
+              Start upload
+            </button>
+          </div>
+        </form>
+
+        <div className="rounded-lg border border-ink-100 bg-ink-50 p-4">
+          <div className="flex items-center gap-2">
+            <FilePlus2 aria-hidden="true" className="text-ledger-blue" size={18} />
+            <h3 className="text-sm font-semibold text-ink-900">Manual entry</h3>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {MANUAL_RECORD_OPTIONS.map((option) => (
+              <button
+                className={`rounded-md border px-3 py-2 text-sm font-medium capitalize transition ${
+                  manualRecordKind === option
+                    ? "border-ink-900 bg-white text-ink-900"
+                    : "border-ink-100 bg-white/70 text-ink-500 hover:border-ink-200"
+                }`}
+                key={option}
+                onClick={() => setManualRecordKind(option)}
+                type="button"
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 grid gap-3">
+            <input
+              className="h-10 rounded-md border border-ink-100 bg-white px-3 text-sm text-ink-500"
+              disabled
+              placeholder={`${capitalize(manualRecordKind)} reference`}
+            />
+            <input
+              className="h-10 rounded-md border border-ink-100 bg-white px-3 text-sm text-ink-500"
+              disabled
+              placeholder={manualRecordKind === "payment" ? "Amount and received date" : "Amount, owner, or due date"}
+            />
+            <button
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-ink-200 bg-white px-3 text-sm font-medium text-ink-400"
+              disabled
+              type="button"
+            >
+              <FilePlus2 aria-hidden="true" size={16} />
+              Manual route unavailable
+            </button>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-ink-500">
+            POST /api/manual-records is not active in this checkpoint branch, so manual invoice, customer, obligation, and payment writes are gated.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function UploadFeedback({ state }: { state: UploadPanelState }) {
+  const color =
+    state.kind === "success"
+      ? "text-ledger-green"
+      : state.kind === "error"
+        ? "text-ledger-red"
+        : state.kind === "unavailable"
+          ? "text-ledger-amber"
+          : "text-ink-500";
+
+  return (
+    <p className={`min-h-10 max-w-xl text-sm leading-5 ${color}`}>
+      {state.message}
+    </p>
+  );
+}
+
+function IngestionStatusPanel({
+  caseData,
+  state,
+  onRefresh,
+}: {
+  caseData: CompanyCaseState;
+  state: IngestionPanelState;
+  onRefresh: () => void;
+}) {
+  if (state.kind === "loading") {
+    return (
+      <DataState
+        title="Loading ingestion status"
+        description="The cockpit is reading source, import, and event states from Aurora."
+        variant="loading"
+      />
+    );
+  }
+
+  if (state.kind === "unavailable") {
+    return (
+      <DataState
+        title="Ingestion status unavailable"
+        description={state.message}
+        variant="unavailable"
+        action={
+          <p className="text-xs font-medium text-ink-600">
+            Missing env: {state.missingEnv.join(", ")}
+          </p>
+        }
+      />
+    );
+  }
+
+  if (state.kind === "error") {
+    return (
+      <DataState
+        title="Ingestion status failed"
+        description={state.message}
+        variant="error"
+      />
+    );
+  }
+
+  const data = state.data;
+  const blockedEvents = data.events.counts.failed + data.events.counts.deadLetter;
+
+  return (
+    <section className="rounded-lg border border-ink-100 bg-white p-5 shadow-panel">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Inbox aria-hidden="true" className="text-ledger-blue" size={18} />
+          <h2 className="text-base font-semibold text-ink-900">Import and event status</h2>
+        </div>
+        <button
+          aria-label="Refresh ingestion status"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-600 transition hover:border-ink-300 hover:bg-ink-50 focus:outline-none focus:ring-2 focus:ring-ink-900 focus:ring-offset-2"
+          onClick={onRefresh}
+          type="button"
+        >
+          <RefreshCw aria-hidden="true" size={16} />
+        </button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <StatusCountCard label="Sources" value={data.sourceFiles.total} tone="neutral" />
+        <StatusCountCard label="Queued" value={data.imports.counts.queued + data.events.counts.queued} tone="watch" />
+        <StatusCountCard label="Processing" value={data.imports.counts.processing + data.events.counts.processing} tone="neutral" />
+        <StatusCountCard label="Blocked" value={data.imports.counts.failed + blockedEvents} tone="risk" />
+      </div>
+
+      <div className="mt-4 rounded-md border border-ink-100 p-3">
+        <h3 className="text-sm font-semibold text-ink-900">Source to case linkage</h3>
+        <div className="mt-3 grid gap-2 text-xs text-ink-600">
+          <LinkageRow label="Uploaded sources" value={`${data.sourceFiles.total} files`} />
+          <LinkageRow
+            label="Import batches"
+            value={`${data.imports.counts.completed} completed, ${data.imports.counts.queued} queued`}
+          />
+          <LinkageRow
+            label="Normalized records"
+            value={`${caseData.invoices.length} invoices, ${caseData.customers.length} customers, ${caseData.obligations.length} obligations`}
+          />
+          <LinkageRow
+            label="Event inbox"
+            value={`${data.events.counts.queued} queued, ${data.events.counts.completed} processed`}
+          />
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        <h3 className="text-sm font-semibold text-ink-900">Recent imports</h3>
+        {data.imports.recent.length > 0 ? (
+          data.imports.recent.map((batch) => (
+            <article className="rounded-md border border-ink-100 p-3" key={batch.externalId ?? batch.createdAt}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-ink-900">
+                    {batch.sourceFilename ?? batch.externalId ?? "Import batch"}
+                  </p>
+                  <p className="mt-1 text-xs text-ink-500">
+                    {capitalize(batch.importKind)} import from {batch.sourceKind ? formatSourceKind(batch.sourceKind) : "unlinked source"}
+                  </p>
+                </div>
+                <StatusPill label={formatImportState(batch.state)} state={batch.state} />
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-ink-600">
+                <MetricChip label="Rows" value={String(batch.rowsTotal)} />
+                <MetricChip label="Applied" value={String(batch.rowsSucceeded)} />
+                <MetricChip label="Failed" value={String(batch.rowsFailed)} />
+              </div>
+              {batch.errorMessage ? <p className="mt-2 text-xs text-ledger-red">{batch.errorMessage}</p> : null}
+            </article>
+          ))
+        ) : (
+          <p className="rounded-md border border-ink-100 bg-ink-50 p-3 text-sm text-ink-500">
+            No import batches are linked to this company yet.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function StatusCountCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "neutral" | "risk" | "watch";
+}) {
+  const toneClass =
+    tone === "risk" ? "text-ledger-red" : tone === "watch" ? "text-ledger-amber" : "text-ink-900";
+
+  return (
+    <article className="rounded-md border border-ink-100 bg-ink-50 p-3">
+      <p className="text-xs font-medium text-ink-500">{label}</p>
+      <p className={`mt-1 text-xl font-semibold ${toneClass}`}>{value}</p>
+    </article>
+  );
+}
+
+function LinkageRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span>{label}</span>
+      <span className="text-right font-medium text-ink-900">{value}</span>
+    </div>
+  );
+}
+
+function MetricChip({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="rounded-md bg-ink-50 px-2 py-1">
+      <span className="font-semibold text-ink-900">{value}</span> {label}
+    </span>
+  );
+}
+
+function StatusPill({ label, state }: { label: string; state: string }) {
+  const tone =
+    state === "failed" || state === "dead_letter"
+      ? "border-red-200 bg-red-50 text-ledger-red"
+      : state === "queued" || state === "processing"
+        ? "border-amber-200 bg-amber-50 text-ledger-amber"
+        : "border-green-200 bg-green-50 text-ledger-green";
+
+  return (
+    <span className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${tone}`}>
+      {label}
+    </span>
   );
 }
 
@@ -463,6 +983,57 @@ function statusLabel(status: "clear" | "risk" | "watch") {
   }
 
   return "Watch";
+}
+
+async function readJsonSafely(response: Response): Promise<unknown> {
+  const text = await response.text();
+
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  const kilobytes = bytes / 1024;
+
+  if (kilobytes < 1024) {
+    return `${kilobytes.toFixed(1)} KB`;
+  }
+
+  return `${(kilobytes / 1024).toFixed(1)} MB`;
+}
+
+function capitalize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1).replaceAll("_", " ");
+}
+
+function formatSourceKind(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.toUpperCase() === "CSV" || part.toUpperCase() === "PDF" ? part.toUpperCase() : capitalize(part))
+    .join(" ");
+}
+
+function formatImportState(value: string) {
+  if (value === "completed_with_errors") {
+    return "Completed with errors";
+  }
+
+  if (value === "dead_letter") {
+    return "Dead letter";
+  }
+
+  return capitalize(value);
 }
 
 function sumCents(values: number[]) {

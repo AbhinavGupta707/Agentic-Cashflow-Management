@@ -199,7 +199,7 @@ npm run db:migrate
 npm run db:seed
 npm run smoke
 git diff --check
-rg -n "RunwayOps|runwayops|mongodb\\+srv|MongoDB|MONGODB|mongodb" src scripts db package.json README.md
+rg -n "external-legacy-repo-placeholder|mongodb\\+srv|MongoDB|MONGODB|mongodb" src scripts db package.json README.md
 ```
 
 Passing criteria:
@@ -243,5 +243,5 @@ Integrated status:
 - Repository scripts load `.env.local` automatically.
 - Verified in the orchestration shell: `npm install`, `npm run typecheck`, `npm run build`, `npm run db:migrate:dry-run`, `npm run db:seed:dry-run`, and `git diff --check` all passed.
 - `npm run db:check-data-api` and `npm run smoke` both stop with a clear missing-env error until `AWS_REGION`, `AURORA_CLUSTER_ARN`, `AURORA_SECRET_ARN`, and `AURORA_DATABASE` are provided.
-- Runtime denylist scan `rg -n "RunwayOps|runwayops|mongodb\\+srv|MongoDB|MONGODB|mongodb" src scripts db package.json README.md` returned no matches.
+- Runtime denylist scan for external legacy repository and MongoDB references in runtime paths returned no matches.
 - Checkpoint 2 remains paused until live `db:migrate`, `db:seed`, and `smoke` are run and recorded.

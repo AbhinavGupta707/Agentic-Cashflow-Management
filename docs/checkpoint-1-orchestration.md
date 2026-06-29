@@ -122,7 +122,7 @@ Verification record:
 - `npm run db:check-data-api` - failed honestly because `AWS_REGION`, `AURORA_CLUSTER_ARN`, `AURORA_SECRET_ARN`, and `AURORA_DATABASE` were not set in the orchestration shell
 - `npm run smoke` - failed honestly for the same missing Aurora env
 - `git diff --check` - passed
-- runtime denylist scan `rg -n "RunwayOps|runwayops|mongodb\\+srv|MongoDB|MONGODB|mongodb" src scripts db package.json README.md` - no matches
+- runtime denylist scan for external legacy repository and MongoDB references in runtime paths - no matches
 
 Checkpoint verdict:
 

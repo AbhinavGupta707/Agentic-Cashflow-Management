@@ -17,6 +17,7 @@
     "db:seed": "tsx scripts/seed-demo-data.ts",
     "db:seed:dry": "tsx scripts/seed-demo-data.ts --dry-run",
     "db:seed:dry-run": "tsx scripts/seed-demo-data.ts --dry-run",
+    "check:cp2": "tsx scripts/check-cp2-contract.ts",
     "smoke:data-api": "tsx scripts/check-data-api.ts",
     "smoke": "tsx scripts/smoke-current-case.ts"
   },

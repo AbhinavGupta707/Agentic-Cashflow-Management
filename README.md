@@ -32,6 +32,13 @@ Checkpoint 1 QA and setup details are documented in:
 
 - `docs/checkpoint-1-status.md`
 
+Checkpoint 2 QA/runbook coverage is in progress on the CP2 lanes:
+
+- `docs/checkpoint-2-orchestration.md`
+- `docs/checkpoint-2-status.md`
+- CP2 focuses on live upload/manual ingestion, S3 source storage, Aurora
+  provenance, event inbox processing, and no-key/live smoke verification.
+
 ## Fresh Clone Setup
 
 Clone only the canonical repository:
@@ -65,6 +72,16 @@ npm run db:migrate
 npm run db:seed
 npm run smoke
 ```
+
+Checkpoint 2 adds an offline contract check for the ingestion/event-inbox
+foundation:
+
+```bash
+npm run check:cp2
+```
+
+Live CP2 upload and processor smoke requires Aurora and S3 env. Fireworks,
+LangSmith, Gmail, ElevenLabs, and Twilio keys are not required for CP2.
 
 Live migration, seed, and smoke commands require Aurora Data API credentials.
 Without local AWS credentials or required Aurora settings, scripts should fail

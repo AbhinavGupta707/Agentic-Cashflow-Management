@@ -91,3 +91,32 @@ Seed data is added by `npm run db:seed`; use `npm run db:seed:dry` for an offlin
 - one forecast run with daily forecast points
 - one action plan with approval-gated collection actions
 - one draft communication, provider execution placeholder, and one memory chunk embedding placeholder
+
+## Checkpoint 2 Ingestion Contract
+
+Checkpoint 2 reuses the checkpoint 1 Aurora primitives for live ingestion:
+
+- `source_files` records S3 provenance for uploaded files, including
+  `source_kind`, bucket, object key, SHA-256 hash, byte size, upload state, and
+  tenant-scoped idempotency.
+- `import_batches` and `import_batch_rows` track file/manual normalization work,
+  row counts, validation errors, and target row references.
+- `event_inbox` queues idempotent processing work with explicit queue states,
+  attempts, availability time, locks, processed timestamp, and error message.
+- `event_ledger` stores durable facts emitted by ingestion processors.
+
+Expected CP2 live flow:
+
+```text
+POST /api/uploads or POST /api/manual-records
+  -> S3 object for raw bytes when a file is present
+  -> source_files/import_batches provenance
+  -> event_inbox queued event
+  -> processor normalizes supported rows
+  -> invoices/customers/obligations/payments and event_ledger facts
+```
+
+The schema supports idempotent replay through tenant-scoped idempotency keys.
+PDF extraction should not be faked: unsupported PDF parsing should remain
+visible as queued, unsupported, or failed import state until a real extractor is
+implemented.

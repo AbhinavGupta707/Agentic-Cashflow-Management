@@ -2,7 +2,7 @@
 
 Date: 2026-06-29
 
-Status: Planned. No worker lanes launched yet.
+Status: Launched from the master orchestration session. Worker lanes are active.
 
 ## Why This Checkpoint Exists
 
@@ -54,8 +54,27 @@ Recommended lanes:
 2. Cockpit UI Interaction And Story.
 3. QA, Demo Script, And Release Evidence.
 
-## Do Not Launch Without Explicit User Instruction
+## Worker Lanes
 
-This document records the next checkpoint. It is not permission to create
-worktree sessions. This master session remains the sole orchestration surface
-until the user explicitly launches Checkpoint 7.
+Launched from master thread `019f10e1-1751-7640-834d-5ab6ec3ea572` on
+2026-06-29 after planning baseline commit
+`4a1dbeb docs: plan checkpoint 7 live demo workflow`.
+
+| Lane | Thread ID | Worktree | Ownership |
+| --- | --- | --- | --- |
+| Product Workflow API And Data Contract | `019f1428-96e5-7631-91ff-4f041512d114` | `/Users/abhinavgupta/.codex/worktrees/5fd3/Agentic-Cashflow-Management` | Product repositories, product API routes, focused API smokes |
+| Cockpit UI Interaction And Story | `019f1428-b198-7180-bf58-3b3f1d05c9e3` | `/Users/abhinavgupta/.codex/worktrees/cd60/Agentic-Cashflow-Management` | Cockpit UI, client interaction, live story |
+| QA, Demo Script, And Release Evidence | `019f1428-ddfb-7782-a0c8-e03bcc8b08d1` | `/Users/abhinavgupta/.codex/worktrees/b4a2/Agentic-Cashflow-Management` | Demo runbook, CP7 status, focused QA scripts |
+
+Master constraints:
+
+- No additional orchestrator, monitor, review, or recurring automation sessions.
+- Worker threads are task lanes only.
+- Master session owns merge review, integration patches, deployment, browser QA,
+  and worker cleanup/archive.
+
+## Launch Note
+
+The user explicitly approved CP7 execution with "yes execute". Do not launch
+additional worker lanes without another explicit instruction or a clearly
+necessary integration-lane replacement.

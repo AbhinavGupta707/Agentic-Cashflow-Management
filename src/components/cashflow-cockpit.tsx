@@ -43,12 +43,25 @@ import type {
   Cp4EmailApprovalItem,
 } from "@/server/db/cp3-forecast-cockpit-contract";
 import type { IngestionStatusApiResponse, IngestionStatusState } from "@/server/db/ingestion-status-contract";
+import type { ProductOverviewState } from "@/server/db/product-overview-contract";
+import type { ProductScenariosState } from "@/server/db/product-scenarios-contract";
+import type { ProviderStatus } from "@/server/db/provider-status-contract";
+import type { ProductActionsState, ProductActionSummary } from "@/server/repositories/product-actions";
+import type { ProductAgentActivityState, ProductActivityItem } from "@/server/repositories/product-agent-activity";
+import type { ProductCustomerListItem, ProductCustomersState } from "@/server/repositories/product-customers";
+import type { VoiceProviderReadiness } from "@/server/voice/contracts";
 
 type Loadable<T> =
   | { kind: "loading" }
   | { kind: "ready"; data: T }
   | { kind: "unavailable"; message: string; missingEnv?: string[] }
   | { kind: "error"; message: string };
+
+type ProductApiResponse<T> =
+  | { status: "ok"; data: T }
+  | { status: "degraded"; data: T }
+  | { status: "unavailable"; message: string; missingEnv?: string[] }
+  | { status: "error"; message: string };
 
 type ScreenKey = "overview" | "cases" | "actions" | "customers" | "forecasts" | "activity" | "settings";
 
@@ -60,6 +73,7 @@ type ProductAction = {
   customer: string;
   detail: string;
   channel: "Email" | "Phone" | "Portal";
+  currency?: string;
   priority: "High" | "Medium" | "Watch";
   impactCents: number;
   approvalState: string;
@@ -120,6 +134,12 @@ export function CashflowCockpit() {
   const [caseState, setCaseState] = useState<Loadable<CompanyCaseState>>({ kind: "loading" });
   const [ingestionState, setIngestionState] = useState<Loadable<IngestionStatusState>>({ kind: "loading" });
   const [runtimeState, setRuntimeState] = useState<Loadable<Cp3ForecastCockpitState>>({ kind: "loading" });
+  const [productOverviewState, setProductOverviewState] = useState<Loadable<ProductOverviewState>>({ kind: "loading" });
+  const [productActionsState, setProductActionsState] = useState<Loadable<ProductActionsState>>({ kind: "loading" });
+  const [productCustomersState, setProductCustomersState] = useState<Loadable<ProductCustomersState>>({ kind: "loading" });
+  const [productScenariosState, setProductScenariosState] = useState<Loadable<ProductScenariosState>>({ kind: "loading" });
+  const [productActivityState, setProductActivityState] = useState<Loadable<ProductAgentActivityState>>({ kind: "loading" });
+  const [voiceReadinessState, setVoiceReadinessState] = useState<Loadable<VoiceProviderReadiness>>({ kind: "loading" });
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
   const [scenarioToggles, setScenarioToggles] = useState<Record<ScenarioToggleKey, boolean>>({
     customerAPays: true,
@@ -131,10 +151,26 @@ export function CashflowCockpit() {
     let active = true;
 
     async function loadAll() {
-      const [caseResult, ingestionResult, runtimeResult] = await Promise.all([
+      const [
+        caseResult,
+        ingestionResult,
+        runtimeResult,
+        productOverviewResult,
+        productActionsResult,
+        productCustomersResult,
+        productScenariosResult,
+        productActivityResult,
+        voiceReadinessResult,
+      ] = await Promise.all([
         fetchCurrentCase(),
         fetchIngestionStatus(),
         fetchForecastCockpit(),
+        fetchProductResource<ProductOverviewState>("/api/product/overview", "Unable to load product overview."),
+        fetchProductResource<ProductActionsState>("/api/product/actions", "Unable to load product actions."),
+        fetchProductResource<ProductCustomersState>("/api/product/customers", "Unable to load product customers."),
+        fetchProductResource<ProductScenariosState>("/api/product/scenarios", "Unable to load product scenarios."),
+        fetchProductResource<ProductAgentActivityState>("/api/product/agent-activity", "Unable to load product activity."),
+        fetchProductResource<VoiceProviderReadiness>("/api/product/voice/status", "Unable to load voice readiness."),
       ]);
 
       if (!active) {
@@ -144,6 +180,12 @@ export function CashflowCockpit() {
       setCaseState(caseResult);
       setIngestionState(ingestionResult);
       setRuntimeState(runtimeResult);
+      setProductOverviewState(productOverviewResult);
+      setProductActionsState(productActionsResult);
+      setProductCustomersState(productCustomersResult);
+      setProductScenariosState(productScenariosResult);
+      setProductActivityState(productActivityResult);
+      setVoiceReadinessState(voiceReadinessResult);
     }
 
     void loadAll();
@@ -154,8 +196,28 @@ export function CashflowCockpit() {
   }, []);
 
   const viewModel = useMemo(() => {
-    return buildProductViewModel(caseState, runtimeState, ingestionState);
-  }, [caseState, runtimeState, ingestionState]);
+    return buildProductViewModel(
+      caseState,
+      runtimeState,
+      ingestionState,
+      productOverviewState,
+      productActionsState,
+      productCustomersState,
+      productScenariosState,
+      productActivityState,
+      voiceReadinessState,
+    );
+  }, [
+    caseState,
+    runtimeState,
+    ingestionState,
+    productOverviewState,
+    productActionsState,
+    productCustomersState,
+    productScenariosState,
+    productActivityState,
+    voiceReadinessState,
+  ]);
 
   const selectedAction = viewModel.actions.find((action) => action.id === selectedActionId) ?? viewModel.actions[0];
 
@@ -185,11 +247,12 @@ export function CashflowCockpit() {
             {activeScreen === "actions" ? (
               <ActionsScreen
                 actions={viewModel.actions}
+                currency={viewModel.currency}
                 selectedAction={selectedAction}
                 onSelectAction={setSelectedActionId}
               />
             ) : null}
-            {activeScreen === "customers" ? <CustomerScreen customer={viewModel.customer} /> : null}
+            {activeScreen === "customers" ? <CustomerScreen currency={viewModel.currency} customer={viewModel.customer} /> : null}
             {activeScreen === "forecasts" ? (
               <ForecastScreen
                 model={viewModel}
@@ -446,10 +509,12 @@ function OverviewScreen({
 
 function ActionsScreen({
   actions,
+  currency,
   selectedAction,
   onSelectAction,
 }: {
   actions: ProductAction[];
+  currency: string;
   selectedAction: ProductAction;
   onSelectAction: (id: string) => void;
 }) {
@@ -472,7 +537,7 @@ function ActionsScreen({
           { label: "Pending Approvals", value: String(actions.length), helper: `${actions.filter((action) => action.priority === "High").length} urgent`, tone: "risk" },
           { label: "Scheduled Actions", value: "2", helper: "Next: 2 today", tone: "accent" },
           { label: "Sent Today", value: "0", helper: "No provider sends recorded", tone: "neutral" },
-          { label: "Est. Cash Impact", value: formatCurrency(totalImpact, "GBP"), helper: "Subject to approval", tone: "good" },
+          { label: "Est. Cash Impact", value: formatCurrency(totalImpact, currency), helper: "Subject to approval", tone: "good" },
         ]}
       />
 
@@ -506,7 +571,7 @@ function ActionsScreen({
               <div className="text-right">
                 <p className="text-xs uppercase text-slate-500">Est. cash impact</p>
                 <p className={clsx("mt-2 text-2xl font-semibold", selectedAction.isNegative ? "text-red-400" : "text-emerald-400")}>
-                  {formatCurrency(selectedAction.impactCents, "GBP")}
+                  {formatCurrency(selectedAction.impactCents, currency)}
                 </p>
               </div>
             </div>
@@ -560,7 +625,7 @@ function ActionsScreen({
   );
 }
 
-function CustomerScreen({ customer }: { customer: CustomerProfile }) {
+function CustomerScreen({ currency, customer }: { currency: string; customer: CustomerProfile }) {
   return (
     <div className="space-y-4">
       <button className="inline-flex items-center gap-2 text-sm font-medium text-[#8279ff]" type="button">
@@ -592,8 +657,8 @@ function CustomerScreen({ customer }: { customer: CustomerProfile }) {
 
       <KpiStrip
         metrics={[
-          { label: "Outstanding Invoices", value: formatCurrency(customer.outstandingCents, "GBP"), helper: "3 invoices", tone: "risk" },
-          { label: "Total Exposure", value: formatCurrency(customer.exposureCents, "GBP"), helper: "Incl. future due", tone: "neutral" },
+          { label: "Outstanding Invoices", value: formatCurrency(customer.outstandingCents, currency), helper: "3 invoices", tone: "risk" },
+          { label: "Total Exposure", value: formatCurrency(customer.exposureCents, currency), helper: "Incl. future due", tone: "neutral" },
           { label: "Avg Days Late", value: `${customer.avgDaysLate} days`, helper: "vs. terms (30)", tone: "watch" },
           { label: "Promise Reliability", value: `${customer.reliability}%`, helper: "Medium", tone: "watch" },
         ]}
@@ -671,7 +736,7 @@ function CustomerScreen({ customer }: { customer: CustomerProfile }) {
                   <p className="text-xs uppercase text-slate-500">Call script preview</p>
                   <span className="text-xs text-[#8279ff]">Use this script</span>
                 </div>
-                <pre className="mt-4 whitespace-pre-wrap rounded-md border border-white/[0.08] bg-[#0a101a] p-4 font-mono text-xs leading-6 text-slate-300">{`Hi ${customer.contactName}, it's James from Marlow & Finch.\nI'm calling about ${customer.invoiceLabel} for ${formatCurrency(customer.outstandingCents, "GBP")}.\nI understand the PO was expected today. Is everything in place so we can process payment this week?`}</pre>
+                <pre className="mt-4 whitespace-pre-wrap rounded-md border border-white/[0.08] bg-[#0a101a] p-4 font-mono text-xs leading-6 text-slate-300">{`Hi ${customer.contactName}, it's James from Marlow & Finch.\nI'm calling about ${customer.invoiceLabel} for ${formatCurrency(customer.outstandingCents, currency)}.\nI understand the PO was expected today. Is everything in place so we can process payment this week?`}</pre>
               </div>
             </div>
           </Panel>
@@ -770,21 +835,24 @@ function ForecastScreen({
         <Panel>
           <PanelHeader title="Scenario Comparison" />
           <div className="mt-6 grid gap-3 md:grid-cols-3">
-            <ScenarioCard label="Baseline" value={84000 + scenarioShift} tone="accent" risk="Medium risk" />
-            <ScenarioCard label="Optimistic" value={312000 + scenarioShift} tone="good" risk="Low risk" />
-            <ScenarioCard label="Conservative" value={-42000 + scenarioShift} tone="risk" risk="High risk" />
+            {model.scenarioComparison.slice(0, 3).map((scenario) => (
+              <ScenarioCard
+                currency={model.currency}
+                key={scenario.label}
+                label={scenario.label}
+                risk={scenario.risk}
+                tone={scenario.tone}
+                valueCents={scenario.valueCents + scenarioShift * 100}
+              />
+            ))}
           </div>
         </Panel>
         <Panel>
           <PanelHeader title="Recommended Action Plan" />
           <p className="mt-2 text-sm text-slate-400">Focus on these high-impact actions.</p>
           <div className="mt-5 space-y-4">
-            {[
-              ["Secure Customer A payment", "+7 days", "good"],
-              ["Confirm supplier deferral", "+6 days", "good"],
-              ["Activate payroll financing", "+25 days", "watch"],
-            ].map(([label, impact, tone], index) => (
-              <PlanRow index={index + 1} impact={impact} key={label} label={label} tone={tone as StatusTone} />
+            {model.recommendedPlan.map((item, index) => (
+              <PlanRow index={index + 1} impact={item.impact} key={item.label} label={item.label} tone={item.tone} />
             ))}
           </div>
           <button className="mt-6 flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[#4e43ff] text-sm font-semibold text-white shadow-[0_12px_28px_rgba(78,67,255,0.28)]" type="button">
@@ -795,15 +863,8 @@ function ForecastScreen({
         <Panel>
           <PanelHeader title="Sensitivity Analysis" meta="Impact on runway (days)" />
           <div className="mt-6 space-y-4">
-            {[
-              ["Payroll financing", 25],
-              ["Customer A pays Friday", 7],
-              ["Supplier deferred 5 days", 6],
-              ["Customer B 50% payment", -8],
-              ["Delay Customer A by 7d", -14],
-              ["Lose Customer B payment", -18],
-            ].map(([label, value]) => (
-              <SensitivityRow key={String(label)} label={String(label)} value={Number(value)} />
+            {model.sensitivityRows.map((row) => (
+              <SensitivityRow key={row.label} label={row.label} value={row.value} />
             ))}
           </div>
         </Panel>
@@ -1108,7 +1169,7 @@ function ActionSummaryRow({ action, index }: { action: ProductAction; index: num
         <p className="mt-2 truncate text-sm text-slate-500">{action.detail}</p>
       </div>
       <div className="text-right">
-        <p className={clsx("text-sm font-semibold", action.isNegative ? "text-red-400" : "text-emerald-400")}>{formatCurrency(action.impactCents, "GBP")}</p>
+        <p className={clsx("text-sm font-semibold", action.isNegative ? "text-red-400" : "text-emerald-400")}>{formatCurrency(action.impactCents, action.currency ?? "GBP")}</p>
         <p className="mt-2 flex items-center justify-end gap-2 text-xs text-slate-400"><ChannelIcon aria-hidden="true" size={15} />{action.channel}</p>
       </div>
     </article>
@@ -1144,7 +1205,7 @@ function PendingApprovalCard({
         </div>
       </div>
       <div className="mt-5 grid grid-cols-3 gap-4 border-t border-white/[0.08] pt-4">
-        <MetricBlock label="Cash impact" value={formatCurrency(action.impactCents, "GBP")} tone={action.isNegative ? "risk" : "good"} />
+        <MetricBlock label="Cash impact" value={formatCurrency(action.impactCents, action.currency ?? "GBP")} tone={action.isNegative ? "risk" : "good"} />
         <MetricBlock label="Channel" value={action.channel} />
         <MetricBlock label="Confidence" value={action.confidence} tone={action.confidence === "High" ? "good" : "watch"} />
       </div>
@@ -1220,11 +1281,23 @@ function ScenarioToggle({
   );
 }
 
-function ScenarioCard({ label, value, tone, risk }: { label: string; value: number; tone: StatusTone; risk: string }) {
+function ScenarioCard({
+  currency,
+  label,
+  valueCents,
+  tone,
+  risk,
+}: {
+  currency: string;
+  label: string;
+  valueCents: number;
+  tone: StatusTone;
+  risk: string;
+}) {
   return (
     <div className={clsx("rounded-md border p-4", toneBorder(tone), "bg-white/[0.025]")}>
       <p className="text-sm font-medium text-white">{label}</p>
-      <p className={clsx("mt-5 text-2xl font-semibold", toneText(tone))}>{formatCurrency(value * 100, "GBP")}</p>
+      <p className={clsx("mt-5 text-2xl font-semibold", toneText(tone))}>{formatCurrency(valueCents, currency)}</p>
       <p className="mt-2 text-sm text-slate-400">Ending cash</p>
       <TonePill tone={tone}>{risk}</TonePill>
       <p className="mt-3 text-xs text-slate-500">Risk of shortfall</p>
@@ -1437,6 +1510,25 @@ async function fetchForecastCockpit(): Promise<Loadable<Cp3ForecastCockpitState>
   }
 }
 
+async function fetchProductResource<T>(path: string, fallbackMessage: string): Promise<Loadable<T>> {
+  try {
+    const response = await fetch(path, { cache: "no-store" });
+    const payload = (await response.json()) as ProductApiResponse<T>;
+
+    if (payload.status === "ok" || payload.status === "degraded") {
+      return { kind: "ready", data: payload.data };
+    }
+
+    if (payload.status === "unavailable") {
+      return { kind: "unavailable", message: payload.message, missingEnv: payload.missingEnv };
+    }
+
+    return { kind: "error", message: payload.message };
+  } catch (error) {
+    return { kind: "error", message: error instanceof Error ? error.message : fallbackMessage };
+  }
+}
+
 type ProductViewModel = {
   companyName: string;
   caseName: string;
@@ -1453,6 +1545,9 @@ type ProductViewModel = {
   providerStatuses: ProviderView[];
   customer: CustomerProfile;
   agentTimeline: Array<{ title: string; body: string; time: string; tone: StatusTone; icon: ComponentType<{ size?: number; className?: string }> }>;
+  scenarioComparison: Array<{ label: string; valueCents: number; tone: StatusTone; risk: string }>;
+  recommendedPlan: Array<{ label: string; impact: string; tone: StatusTone }>;
+  sensitivityRows: Array<{ label: string; value: number }>;
   evidenceCount: string;
 };
 
@@ -1467,6 +1562,12 @@ function buildProductViewModel(
   caseState: Loadable<CompanyCaseState>,
   runtimeState: Loadable<Cp3ForecastCockpitState>,
   ingestionState: Loadable<IngestionStatusState>,
+  productOverviewState: Loadable<ProductOverviewState>,
+  productActionsState: Loadable<ProductActionsState>,
+  productCustomersState: Loadable<ProductCustomersState>,
+  productScenariosState: Loadable<ProductScenariosState>,
+  productActivityState: Loadable<ProductAgentActivityState>,
+  voiceReadinessState: Loadable<VoiceProviderReadiness>,
 ): ProductViewModel {
   const liveState = caseState.kind === "ready" ? "live" : caseState.kind;
   const data = caseState.kind === "ready" ? caseState.data : null;
@@ -1483,7 +1584,7 @@ function buildProductViewModel(
   const actions = buildActions(data, runtime, currency);
   const customer = buildCustomerProfile(data, totalOverdue);
   const providerStatuses = buildProviderViews(runtimeState);
-  return {
+  const base: ProductViewModel = {
     companyName,
     caseName,
     currency,
@@ -1533,6 +1634,24 @@ function buildProductViewModel(
     providerStatuses,
     customer,
     agentTimeline: buildAgentTimeline(runtime, ingestionState),
+    scenarioComparison: [
+      { label: "Baseline", valueCents: 8400000, tone: "accent", risk: "Medium risk" },
+      { label: "Optimistic", valueCents: 31200000, tone: "good", risk: "Low risk" },
+      { label: "Conservative", valueCents: -4200000, tone: "risk", risk: "High risk" },
+    ],
+    recommendedPlan: [
+      { label: "Secure Customer A payment", impact: "+7 days", tone: "good" },
+      { label: "Confirm supplier deferral", impact: "+6 days", tone: "good" },
+      { label: "Activate payroll financing", impact: "+25 days", tone: "watch" },
+    ],
+    sensitivityRows: [
+      { label: "Payroll financing", value: 25 },
+      { label: "Customer A pays Friday", value: 7 },
+      { label: "Supplier deferred 5 days", value: 6 },
+      { label: "Customer B 50% payment", value: -8 },
+      { label: "Delay Customer A by 7d", value: -14 },
+      { label: "Lose Customer B payment", value: -18 },
+    ],
     evidenceCount:
       ingestionState.kind === "ready"
         ? String(ingestionState.data.sourceFiles.total + ingestionState.data.imports.rows.total + ingestionState.data.events.recent.length)
@@ -1540,6 +1659,495 @@ function buildProductViewModel(
           ? String(data.invoices.length + data.obligations.length + data.memoryFacts.length)
           : "Pending",
   };
+
+  return applyProductApiData(base, {
+    productOverviewState,
+    productActionsState,
+    productCustomersState,
+    productScenariosState,
+    productActivityState,
+    voiceReadinessState,
+  });
+}
+
+function applyProductApiData(
+  model: ProductViewModel,
+  states: {
+    productOverviewState: Loadable<ProductOverviewState>;
+    productActionsState: Loadable<ProductActionsState>;
+    productCustomersState: Loadable<ProductCustomersState>;
+    productScenariosState: Loadable<ProductScenariosState>;
+    productActivityState: Loadable<ProductAgentActivityState>;
+    voiceReadinessState: Loadable<VoiceProviderReadiness>;
+  },
+): ProductViewModel {
+  let next = { ...model };
+  const productProviders: ProviderView[] = [];
+
+  if (states.productOverviewState.kind === "ready") {
+    const overview = states.productOverviewState.data;
+    const overviewProviders = overview.providerReadiness.providers.map((provider) => mapProvider(provider));
+    productProviders.push({
+      name: "Aurora / S3",
+      label: overview.source.state === "ready" ? "Ready" : overview.source.state === "partial" ? "Partial" : "Unavailable",
+      message: overview.source.message,
+      tone: sourceTone(overview.source.state),
+    });
+    productProviders.push(...overviewProviders);
+
+    const currency = overview.company.baseCurrency;
+    const runway = overview.cash.runway;
+    const projectedLow = overview.cash.projectedLowPoint;
+    const upcomingPayroll = overview.cash.upcomingPayroll;
+    const upcomingObligations = overview.cash.upcomingObligations;
+    const chart = overview.chart.series;
+    const overviewActions = overview.criticalActions.map((action) => ({
+      id: action.externalId,
+      title: action.title,
+      customer: action.customerName ?? "Cash action",
+      detail: `${formatChannel(action.actionType)} · ${action.dueAt ? `Due ${formatShortDate(action.dueAt)}` : "Schedule pending"}`,
+      channel: channelFromActionType(action.actionType),
+      currency,
+      priority: normalizePriority(action.priority),
+      impactCents: action.expectedCashImpactCents,
+      approvalState: formatIdentifier(action.approvalState),
+      rationale: action.rationale ?? "The assistant ranked this action from forecast pressure, customer context, and expected cash impact.",
+      draftPreview: "Draft preview appears after the action detail loads and a generated draft is available.",
+      confidence: action.source.state === "ready" ? "High" : "Medium",
+      isNegative: action.expectedCashImpactCents < 0,
+      providerNote: action.source.message,
+    })) satisfies ProductAction[];
+
+    next = {
+      ...next,
+      companyName: overview.company.name,
+      caseName: overview.case.label,
+      currency,
+      generatedAt: formatRelativeTime(overview.lastUpdatedAt),
+      liveState: overview.source.state === "unavailable" ? next.liveState : "live",
+      alertMessage: overview.source.state === "ready" ? null : overview.source.message,
+      overviewMetrics: [
+        {
+          label: "Current Cash",
+          value:
+            overview.cash.currentCash.valueCents === null
+              ? "Pending"
+              : formatCurrency(overview.cash.currentCash.valueCents, currency),
+          helper:
+            projectedLow.valueCents === null
+              ? overview.cash.currentCash.source.message
+              : `${formatCurrency(projectedLow.valueCents, currency)} low point`,
+          tone: overview.cash.currentCash.valueCents === null ? "neutral" : "good",
+        },
+        {
+          label: "Runway",
+          value: runway.daysFromToday === null ? "Pending" : `${runway.daysFromToday} days`,
+          helper: runway.date ? `to ${formatShortDate(runway.date)}` : runway.source.message,
+          tone: runwayTone(runway.status),
+        },
+        {
+          label: "Payroll Due",
+          value:
+            upcomingPayroll.valueCents === null
+              ? "Pending"
+              : formatCurrency(upcomingPayroll.valueCents, currency),
+          helper: upcomingPayroll.dueDate ? `due ${formatShortDate(upcomingPayroll.dueDate)}` : upcomingPayroll.source.message,
+          tone: upcomingPayroll.valueCents === null ? "neutral" : "neutral",
+        },
+        {
+          label: "Cash Risk",
+          value: runway.status === "unknown" ? "PENDING" : runway.status.toUpperCase(),
+          helper:
+            upcomingObligations.valueCents === null
+              ? runway.source.message
+              : `${formatCurrency(upcomingObligations.valueCents, currency)} obligations`,
+          tone: runwayTone(runway.status),
+        },
+      ],
+      cashflowBars:
+        chart.length > 0
+          ? chart.slice(0, 6).map((point, index) => ({
+              label: index === 0 ? "Today" : formatShortDate(point.date),
+              valueCents: index === 0 ? point.expectedCashCents : point.netCashflowCents,
+              kind: index === 0 ? "net" : "movement",
+            }))
+          : next.cashflowBars,
+      actions: overviewActions.length > 0 ? overviewActions : next.actions,
+      approvals:
+        overview.approvalsNeeded.length > 0
+          ? overview.approvalsNeeded.slice(0, 4).map((approval) => ({
+              id: approval.actionExternalId,
+              title: `${formatIdentifier(approval.approvalState)} - ${approval.customerName ?? approval.title}`,
+              detail: approval.draftSubject ?? approval.blockers[0] ?? "Approval is required before outbound execution.",
+            }))
+          : next.approvals,
+      agentTiles:
+        overview.agentStatuses.length > 0
+          ? overview.agentStatuses.map((agent) => ({
+              label: agent.label,
+              status: formatIdentifier(agent.state),
+              detail: agent.message,
+              tone: statusTone(agent.state),
+              icon: iconForAgent(agent.key),
+            }))
+          : next.agentTiles,
+      evidenceCount: String(chart.length + overview.criticalActions.length + overview.approvalsNeeded.length),
+    };
+  }
+
+  if (states.productActionsState.kind === "ready") {
+    const actionState = states.productActionsState.data;
+    const mappedActions = actionState.actions.map((action) => mapProductActionSummary(action));
+    productProviders.push(
+      mapAvailabilityProvider(actionState.providers.fireworks, "AI reasoning"),
+      mapAvailabilityProvider(actionState.providers.langsmith, "Trace review"),
+      {
+        name: "Email",
+        label: actionState.providers.gmail.status === "available" ? "Ready" : "Needs setup",
+        message: actionState.providers.gmail.message,
+        tone: actionState.providers.gmail.status === "available" ? "good" : "watch",
+      },
+      {
+        name: "Voice",
+        label: actionState.providers.voice.status === "available" ? "Ready" : "Needs setup",
+        message: actionState.providers.voice.message,
+        tone: actionState.providers.voice.status === "available" ? "good" : "watch",
+      },
+    );
+
+    next = {
+      ...next,
+      generatedAt: formatRelativeTime(actionState.generatedAt),
+      actions: mappedActions.length > 0 ? mappedActions : next.actions,
+      approvals: mappedActions.length > 0 ? buildApprovals(mappedActions, []) : next.approvals,
+    };
+  }
+
+  if (states.productCustomersState.kind === "ready" && states.productCustomersState.data.customers.length > 0) {
+    const customer = [...states.productCustomersState.data.customers].sort(
+      (left, right) => right.overdueCents + right.exposureCents - (left.overdueCents + left.exposureCents),
+    )[0];
+
+    next = {
+      ...next,
+      customer: mapProductCustomer(customer),
+    };
+  }
+
+  if (states.productScenariosState.kind === "ready") {
+    const scenarios = states.productScenariosState.data;
+    next = {
+      ...next,
+      scenarioComparison:
+        scenarios.comparisonCards.length > 0
+          ? scenarios.comparisonCards.map((card) => ({
+              label: card.label,
+              valueCents: card.minimumCashCents,
+              tone: card.shortfallCents > 0 ? "risk" : card.changeVsBaselineCents > 0 ? "good" : "accent",
+              risk: card.shortfallCents > 0 ? "Shortfall risk" : card.runwayDays === null ? "Watch" : `${card.runwayDays} day runway`,
+            }))
+          : next.scenarioComparison,
+      recommendedPlan:
+        scenarios.recommendedActionPlan.length > 0
+          ? scenarios.recommendedActionPlan.slice(0, 5).map((item) => ({
+              label: item.title,
+              impact: formatCompactCurrency(item.expectedCashImpactCents, scenarios.company.baseCurrency),
+              tone: item.expectedCashImpactCents >= 0 ? "good" : "watch",
+            }))
+          : next.recommendedPlan,
+      sensitivityRows:
+        scenarios.sensitivityRows.length > 0
+          ? scenarios.sensitivityRows.slice(0, 6).map((row) => ({
+              label: row.driver,
+              value: clamp(Math.round((row.upsideCents + row.downsideCents) / 100000), -28, 28),
+            }))
+          : next.sensitivityRows,
+    };
+  }
+
+  if (states.productActivityState.kind === "ready") {
+    const activity = states.productActivityState.data;
+    productProviders.push(
+      mapAvailabilityProvider(activity.providers.fireworks, "AI reasoning"),
+      mapAvailabilityProvider(activity.providers.langsmith, "Trace review"),
+    );
+
+    if (activity.timeline.length > 0) {
+      next = {
+        ...next,
+        agentTimeline: activity.timeline.slice(0, 8).map(mapProductActivity),
+      };
+    }
+  }
+
+  if (states.voiceReadinessState.kind === "ready") {
+    productProviders.push(
+      mapAvailabilityProvider(states.voiceReadinessState.data.providers.twilio, "Twilio voice"),
+      mapAvailabilityProvider(states.voiceReadinessState.data.providers.elevenlabs, "ElevenLabs voice"),
+    );
+  }
+
+  if (productProviders.length > 0) {
+    next = {
+      ...next,
+      providerStatuses: mergeProviderViews([...productProviders, ...next.providerStatuses]),
+    };
+  }
+
+  return {
+    ...next,
+    readinessSummary: summarizeReadiness(next.liveState, next.providerStatuses),
+  };
+}
+
+function mapProductActionSummary(action: ProductActionSummary): ProductAction {
+  const channel = action.draftPreview?.channel === "voice_script" ? "Phone" : channelFromActionType(action.actionType);
+
+  return {
+    id: action.externalId,
+    title: action.title,
+    customer: action.customer.name ?? "Cash action",
+    detail: `${channel} · ${formatIdentifier(action.approval.state)} · ${action.updatedAt ? formatShortDate(action.updatedAt) : "Updated recently"}`,
+    channel,
+    currency: action.cashImpact.currency,
+    priority: normalizePriority(action.priority),
+    impactCents: action.cashImpact.expectedCents,
+    approvalState: formatIdentifier(action.approval.state),
+    rationale: action.whyThisAction,
+    draftPreview:
+      action.draftPreview?.body ??
+      "Draft preview will appear here after the action detail is opened and generated content is available.",
+    confidence: action.providerState.outboundOutcomeBackedByProvider
+      ? "High"
+      : action.draftPreview?.source === "fireworks"
+        ? "Medium"
+        : "Low",
+    isNegative: action.cashImpact.expectedCents < 0,
+    providerNote: action.providerState.outboundOutcomeBackedByProvider
+      ? `Provider execution is ${action.providerState.latestExecutionState ?? "recorded"}.`
+      : "No outbound provider execution is recorded for this action.",
+  };
+}
+
+function mapProductCustomer(customer: ProductCustomerListItem): CustomerProfile {
+  const riskScore = customer.riskScore ?? 45;
+  const contactName = customer.primaryContact?.fullName?.split(" ")[0] ?? "Accounts";
+  const recommendedChannel = formatIdentifier(customer.recommendedOutreach.channel);
+
+  return {
+    id: customer.externalId ?? customer.id,
+    name: customer.name,
+    segment: customer.segment ?? "Customer",
+    status: customer.overdueCents > 0 ? "Overdue" : riskScore > 65 ? "Watch" : "Current",
+    badge: `${formatIdentifier(customer.recommendedOutreach.priority)} priority`,
+    outstandingCents: customer.overdueCents,
+    exposureCents: customer.exposureCents,
+    avgDaysLate: customer.averageDaysLate ?? 0,
+    reliability: clamp(100 - riskScore, 5, 98),
+    summary: customer.recommendedOutreach.reason,
+    tags: [recommendedChannel, `${customer.openInvoiceCount} open invoices`, `${customer.overdueInvoiceCount} overdue`],
+    contactName,
+    invoiceLabel:
+      customer.overdueInvoiceCount > 0
+        ? `${customer.overdueInvoiceCount} overdue invoice${customer.overdueInvoiceCount === 1 ? "" : "s"}`
+        : "the selected account balance",
+  };
+}
+
+function mapProductActivity(item: ProductActivityItem): ProductViewModel["agentTimeline"][number] {
+  return {
+    title: item.title,
+    body: item.detail,
+    time: formatShortDate(item.occurredAt),
+    tone: statusTone(item.state ?? item.kind),
+    icon: iconForActivity(item.kind),
+  };
+}
+
+function buildProviderViews(runtimeState: Loadable<Cp3ForecastCockpitState>): ProviderView[] {
+  if (runtimeState.kind !== "ready") {
+    const message = runtimeState.kind === "loading" ? "Checking connection readiness." : "The live runtime connection is unavailable in this environment.";
+    return [
+      { name: "Aurora / S3", label: runtimeState.kind === "loading" ? "Checking" : "Unavailable", message, tone: runtimeState.kind === "loading" ? "watch" : "risk" },
+      { name: "AI reasoning", label: "Unavailable", message: "Reasoning status is hidden until the live runtime aggregate loads.", tone: "watch" },
+      { name: "Email", label: "Not connected", message: "Email remains approval-gated and no send is shown without provider execution.", tone: "watch" },
+      { name: "Voice", label: "Not connected", message: "Voice calling remains unavailable until Twilio or ElevenLabs readiness is returned.", tone: "watch" },
+    ];
+  }
+
+  return runtimeState.data.providers.map((provider) => mapProvider(provider));
+}
+
+function mapProvider(provider: Cp3ProviderStatus): ProviderView {
+  const connected = provider.status === "connected" || provider.status === "configured";
+  const tone: StatusTone = connected ? "good" : provider.status === "optional_unconfigured" ? "watch" : "risk";
+
+  return {
+    name: provider.name,
+    label: connected ? "Ready" : provider.status === "optional_unconfigured" ? "Optional" : "Unavailable",
+    message: provider.message,
+    tone,
+  };
+}
+
+function mapAvailabilityProvider(provider: ProviderStatus, label?: string): ProviderView {
+  const tone: StatusTone =
+    provider.status === "available"
+      ? "good"
+      : provider.status === "disabled"
+        ? "neutral"
+        : provider.reason === "provider-error" || provider.reason === "invalid-config"
+          ? "risk"
+          : "watch";
+
+  return {
+    name: label ?? formatIdentifier(provider.provider),
+    label: provider.status === "available" ? "Ready" : provider.status === "disabled" ? "Disabled" : "Needs setup",
+    message: provider.message,
+    tone,
+  };
+}
+
+function mergeProviderViews(providers: ProviderView[]) {
+  const merged = new Map<string, ProviderView>();
+
+  for (const provider of providers) {
+    if (!merged.has(provider.name)) {
+      merged.set(provider.name, provider);
+    }
+  }
+
+  return [...merged.values()];
+}
+
+function summarizeReadiness(liveState: ProductViewModel["liveState"], providers: ProviderView[]) {
+  if (liveState === "loading") {
+    return "Checking.";
+  }
+
+  if (liveState === "unavailable" || liveState === "error") {
+    return "Needs connection.";
+  }
+
+  if (providers.some((provider) => provider.tone === "risk")) {
+    return "Needs attention.";
+  }
+
+  if (providers.some((provider) => provider.tone === "watch")) {
+    return "Partially ready.";
+  }
+
+  return "Always on.";
+}
+
+function channelFromActionType(actionType: string): ProductAction["channel"] {
+  if (actionType.includes("call") || actionType.includes("voice")) {
+    return "Phone";
+  }
+
+  if (actionType.includes("portal")) {
+    return "Portal";
+  }
+
+  return "Email";
+}
+
+function normalizePriority(priority: string): ProductAction["priority"] {
+  const value = priority.toLowerCase();
+
+  if (value === "urgent" || value === "high" || value === "p0" || value === "p1") {
+    return "High";
+  }
+
+  if (value === "medium" || value === "normal" || value === "p2") {
+    return "Medium";
+  }
+
+  return "Watch";
+}
+
+function sourceTone(state: string): StatusTone {
+  if (state === "ready") {
+    return "good";
+  }
+
+  if (state === "partial") {
+    return "watch";
+  }
+
+  return "risk";
+}
+
+function runwayTone(status: string): StatusTone {
+  if (status === "safe") {
+    return "good";
+  }
+
+  if (status === "critical") {
+    return "risk";
+  }
+
+  if (status === "watch") {
+    return "watch";
+  }
+
+  return "neutral";
+}
+
+function statusTone(status: string): StatusTone {
+  const normalized = status.toLowerCase();
+
+  if (["ready", "connected", "configured", "completed", "succeeded", "success", "ok", "approved"].includes(normalized)) {
+    return "good";
+  }
+
+  if (["failed", "error", "blocked", "rejected", "cancelled", "unavailable"].includes(normalized)) {
+    return "risk";
+  }
+
+  if (["queued", "running", "pending", "needs_approval", "partial"].includes(normalized)) {
+    return "watch";
+  }
+
+  return "neutral";
+}
+
+function iconForAgent(key: string): ComponentType<{ size?: number; className?: string }> {
+  const normalized = key.toLowerCase();
+
+  if (normalized.includes("forecast")) {
+    return LineChart;
+  }
+
+  if (normalized.includes("collection") || normalized.includes("customer")) {
+    return UsersRound;
+  }
+
+  if (normalized.includes("supplier") || normalized.includes("obligation")) {
+    return BriefcaseBusiness;
+  }
+
+  return ShieldCheck;
+}
+
+function iconForActivity(kind: ProductActivityItem["kind"]): ComponentType<{ size?: number; className?: string }> {
+  if (kind === "agent_run") {
+    return Sparkles;
+  }
+
+  if (kind === "checkpoint") {
+    return ClipboardCheck;
+  }
+
+  if (kind === "provider_execution") {
+    return ExternalLink;
+  }
+
+  if (kind === "audit") {
+    return ShieldCheck;
+  }
+
+  return Activity;
 }
 
 function buildActions(data: CompanyCaseState | null, runtime: Cp3ForecastCockpitState | null, currency: string): ProductAction[] {
@@ -1557,6 +2165,7 @@ function buildActions(data: CompanyCaseState | null, runtime: Cp3ForecastCockpit
       customer: item.customer.name ?? item.obligation.title ?? "Recommended action",
       detail: `${item.invoice.invoiceNumber ? `Invoice #${item.invoice.invoiceNumber}` : "Action"} · ${item.scheduledFor ? `Due ${formatShortDate(item.scheduledFor)}` : "Schedule pending"}`,
       channel: item.actionType.includes("call") ? "Phone" : item.actionType.includes("portal") ? "Portal" : "Email",
+      currency,
       priority: item.priorityRank <= 1 ? "High" : item.priorityRank <= 3 ? "Medium" : "Watch",
       impactCents: item.expectedCashImpactCents,
       approvalState: item.approval.state,
@@ -1575,6 +2184,7 @@ function buildActions(data: CompanyCaseState | null, runtime: Cp3ForecastCockpit
       customer: item.customerName,
       detail: `${item.invoiceExternalId ? "Invoice-linked action" : "Cash action"} · ${item.scheduledFor ? formatShortDate(item.scheduledFor) : "Schedule pending"}`,
       channel: item.actionType.includes("call") ? "Phone" : item.actionType.includes("portal") ? "Portal" : "Email",
+      currency,
       priority: item.priority <= 1 ? "High" : item.priority <= 3 ? "Medium" : "Watch",
       impactCents: item.expectedRecoveryCents,
       approvalState: item.approvalRequired ? "Approval required" : "Ready",
@@ -1595,6 +2205,7 @@ function buildActionFromApproval(item: Cp4EmailApprovalItem, currency: string): 
     customer: item.customer.name ?? "Unassigned customer",
     detail: `${item.invoice.invoiceNumber ? `Invoice #${item.invoice.invoiceNumber}` : "Invoice pending"} · ${item.approval.message}`,
     channel: item.actionType.includes("call") ? "Phone" : item.actionType.includes("portal") ? "Portal" : "Email",
+    currency,
     priority: item.expectedCashImpactCents > 3000000 ? "High" : "Medium",
     impactCents: item.expectedCashImpactCents,
     approvalState: item.approval.state,
@@ -1688,32 +2299,6 @@ function buildAgentTiles(runtime: Cp3ForecastCockpitState | null): ProductViewMo
   ];
 }
 
-function buildProviderViews(runtimeState: Loadable<Cp3ForecastCockpitState>): ProviderView[] {
-  if (runtimeState.kind !== "ready") {
-    const message = runtimeState.kind === "loading" ? "Checking connection readiness." : "The live runtime connection is unavailable in this environment.";
-    return [
-      { name: "Aurora / S3", label: runtimeState.kind === "loading" ? "Checking" : "Unavailable", message, tone: runtimeState.kind === "loading" ? "watch" : "risk" },
-      { name: "AI reasoning", label: "Unavailable", message: "Reasoning status is hidden until the live runtime aggregate loads.", tone: "watch" },
-      { name: "Email", label: "Not connected", message: "Email remains approval-gated and no send is shown without provider execution.", tone: "watch" },
-      { name: "Voice", label: "Not connected", message: "Voice calling remains unavailable until Twilio or ElevenLabs readiness is returned.", tone: "watch" },
-    ];
-  }
-
-  return runtimeState.data.providers.map((provider) => mapProvider(provider));
-}
-
-function mapProvider(provider: Cp3ProviderStatus): ProviderView {
-  const connected = provider.status === "connected" || provider.status === "configured";
-  const tone: StatusTone = connected ? "good" : provider.status === "optional_unconfigured" ? "watch" : "risk";
-
-  return {
-    name: provider.name,
-    label: connected ? "Ready" : provider.status === "optional_unconfigured" ? "Optional" : "Unavailable",
-    message: provider.message,
-    tone,
-  };
-}
-
 function buildAgentTimeline(runtime: Cp3ForecastCockpitState | null, ingestionState: Loadable<IngestionStatusState>): ProductViewModel["agentTimeline"] {
   const sourceCount = ingestionState.kind === "ready" ? ingestionState.data.sourceFiles.total : 0;
   const runs = runtime?.agent.runs ?? [];
@@ -1780,6 +2365,18 @@ function formatChannel(actionType: string) {
   }
 
   return "Payment";
+}
+
+function formatIdentifier(value: string) {
+  return value
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(" ");
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function sumCents(values: number[]) {

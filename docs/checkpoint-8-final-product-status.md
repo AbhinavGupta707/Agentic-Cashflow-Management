@@ -2,10 +2,10 @@
 
 Date: 2026-06-29
 
-Status: Launched. Implementation worker lanes are active; this master thread is
-the only orchestration surface. Do not claim checkpoint completion until all
-lanes merge, master integration passes, final browser/deployment evidence is
-recorded, and worker lanes are archived.
+Status: Integrated locally. The three implementation worker lanes have landed
+and master integration has passed local contract, smoke, live-intake, and Chrome
+QA evidence. Production push/deploy verification and worker archiving are the
+remaining close-out steps.
 
 ## Why This Checkpoint Exists
 
@@ -46,15 +46,15 @@ Known gaps for first-place positioning:
 - The official public content-piece requirement still needs a publishable draft
   and final public link.
 
-## Planned Lanes
+## Completed Lanes
 
-Use the plan in:
+The lane plan lives in:
 
 ```text
 docs/checkpoint-8-final-product-orchestration.md
 ```
 
-Recommended lanes after explicit approval:
+Executed lanes:
 
 1. Live Intake, Event Loop, And Agent Graph.
 2. Execution, Memory, And Product UI Polish.
@@ -127,51 +127,97 @@ Launch Checkpoint 8 final product execution with the three planned worker lanes.
 
 Checkpoint 8 is complete only when:
 
-- final worker lanes are merged
-- master integration diff is reviewed
-- full acceptance suite passes
-- local browser QA passes
+- final worker lanes are merged: complete
+- master integration diff is reviewed: complete
+- full acceptance suite passes: complete locally
+- local browser QA passes: complete
 - production deploy succeeds
 - production browser QA passes
 - optional live Twilio call-to-self is either verified or explicitly marked
-  gated/skipped
-- demo state is reset after any live mutation
-- submission docs/assets are ready
-- worker lanes are archived
+  gated/skipped: gated/skipped locally, no call placed
+- demo state is reset after any live mutation: pending final recording reset
+- submission docs/assets are ready: complete
+- worker lanes are archived: pending final cleanup
 - `CP8_REQUIRE_FINAL_PRODUCT=true npm run check:cp8` passes after the runtime
-  lanes land
+  lanes land: complete
 
 ## Final Evidence Template
 
-Fill this in after execution:
+Integrated commits:
 
-```text
-Integrated commit:
+- `5e4bdde Merge checkpoint 8 QA submission lane`
+- `57cb797 Merge checkpoint 8 live intake lane`
+- `e614add Merge checkpoint 8 execution memory lane`
+- `46249ef feat: wire checkpoint 8 sample intake UI`
+
 Merged lane commits:
-Worker lanes archived:
-Production URL:
-Production deployment ID:
-Commands passed:
-Commands failed/skipped and why:
-Live API probes:
-Browser QA desktop:
-Browser QA mobile:
-Upload/import evidence:
-Forecast/event before-after evidence:
-Fireworks evidence:
-LangSmith evidence:
-Approval/edit/reject evidence:
-Twilio live/gated evidence:
-Outcome memory evidence:
-Architecture diagram path:
-AWS proof screenshot path:
-Vercel project link:
-Vercel Team ID:
-Public content link:
-Demo video link:
+
+- `0a9b249 cp8: add final submission qa package`
+- `998435a feat: add cp8 live intake loop`
+- `8569255 feat: add cp8 execution memory flow`
+
+Commands passed locally:
+
+- `npm run build`
+- `npm run typecheck`
+- `npm run check:cp2`
+- `npm run check:cp3`
+- `npm run check:cp4`
+- `npm run check:cp5`
+- `CP6_REQUIRE_PRODUCT_ROUTES=true npm run check:cp6`
+- `CP7_REQUIRE_LIVE_WORKFLOW=true npm run check:cp7`
+- `npm run check:cp8`
+- `CP8_REQUIRE_FINAL_PRODUCT=true npm run check:cp8`
+- `npm run smoke:product:no-key`
+- `npm run smoke:voice:no-key`
+- `npm run smoke:cp8:intake:no-key`
+- `git diff --check`
+
+Live local API evidence:
+
+- `POST /api/product/demo-intake` returned `200`.
+- Sample finance pack processed `4` files.
+- Event loop/forecast/recommendation processing completed.
+- Agent graph refreshed `5` checkpoints and `9` recommendations.
+- `outboundProvidersExecuted` remained `false`.
+- `POST /api/product/actions/act_northstar_cfo_email/approve` returned `200`.
+- `POST /api/product/actions/act_northstar_cfo_email/record-outcome`
+  returned `200`.
+
+Chrome QA desktop evidence:
+
+- Overview showed live risk story, live intake control, Northstar actions, and
+  persisted recommendation-agent activity.
+- Actions showed populated draft preview, approval controls, execution guardrail
+  copy, approved-test-call control, and outcome-memory control.
+- Edit opened a real draft editor.
+- Approval mutation persisted and did not execute an email or call.
+- Outcome-memory mutation persisted through the product route.
+- Fresh Chrome overview and action-page renders had no console warnings or
+  errors after the final React key fix.
+
+Production evidence:
+
+- Production URL: `https://agentic-cashflow-management.vercel.app`
+- Production deployment ID: pending post-push verification
+- Production browser QA: pending post-push verification
+
 Known gated flows:
+
+- Twilio live call-to-self is implemented behind approval, `live=true`,
+  configured Twilio credentials, `TWILIO_TEST_TO_NUMBER`, and exact destination
+  matching. No live call was placed during local QA.
+- Gmail remains optional/gated and must not be claimed as sent unless provider
+  execution evidence exists.
+- ElevenLabs is configured as readiness/integration surface; no external voice
+  agent call was placed during local QA.
+
 Residual risks:
-```
+
+- Final video/demo reset should reseed or intentionally preserve the approved
+  action/outcome-memory state depending on the recorded narrative.
+- AWS/Vercel proof screenshots and public content/demo video links are still
+  submission packaging tasks outside the codebase.
 
 ## Submission Assets
 

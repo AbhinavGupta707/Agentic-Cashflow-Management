@@ -820,7 +820,7 @@ function OverviewScreen({
           <PanelHeader title="Agent Activity" right={<span className="text-sm text-[#8279ff]">View all</span>} />
           <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {model.agentTiles.map((tile) => (
-              <AgentTile key={tile.label} tile={tile} />
+              <AgentTile key={tile.id} tile={tile} />
             ))}
           </div>
         </Panel>
@@ -1505,7 +1505,7 @@ function ActivityScreen({ model }: { model: ProductViewModel }) {
           <PanelHeader title="Workflow timeline" />
           <div className="mt-6 space-y-4">
             {model.agentTimeline.map((step) => (
-              <TimelineRow body={step.body} icon={step.icon} key={step.title} time={step.time} title={step.title} tone={step.tone} />
+              <TimelineRow body={step.body} icon={step.icon} key={step.id} time={step.time} title={step.title} tone={step.tone} />
             ))}
           </div>
         </Panel>
@@ -2451,10 +2451,10 @@ type ProductViewModel = {
   cashflowBars: Array<{ label: string; valueCents: number; kind: "net" | "movement" }>;
   actions: ProductAction[];
   approvals: Array<{ id: string; title: string; detail: string }>;
-  agentTiles: Array<{ label: string; status: string; detail: string; tone: StatusTone; icon: ComponentType<{ size?: number; className?: string }> }>;
+  agentTiles: Array<{ id: string; label: string; status: string; detail: string; tone: StatusTone; icon: ComponentType<{ size?: number; className?: string }> }>;
   providerStatuses: ProviderView[];
   customer: CustomerProfile;
-  agentTimeline: Array<{ title: string; body: string; time: string; tone: StatusTone; icon: ComponentType<{ size?: number; className?: string }> }>;
+  agentTimeline: Array<{ id: string; title: string; body: string; time: string; tone: StatusTone; icon: ComponentType<{ size?: number; className?: string }> }>;
   scenarioProjections: Array<{
     key: string;
     label: string;
@@ -2759,7 +2759,8 @@ function applyProductApiData(
           : next.approvals,
       agentTiles:
         overview.agentStatuses.length > 0
-          ? overview.agentStatuses.map((agent) => ({
+          ? overview.agentStatuses.map((agent, index) => ({
+              id: `${agent.key}-${agent.state}-${index}`,
               label: agent.label,
               status: formatIdentifier(agent.state),
               detail: agent.message,
@@ -3009,6 +3010,7 @@ function mapProductCustomer(customer: ProductCustomerListItem): CustomerProfile 
 
 function mapProductActivity(item: ProductActivityItem): ProductViewModel["agentTimeline"][number] {
   return {
+    id: item.id,
     title: item.title,
     body: item.detail,
     time: formatShortDate(item.occurredAt),
@@ -3367,10 +3369,10 @@ function buildAgentTiles(runtime: Cp3ForecastCockpitState | null): ProductViewMo
   const hasRuns = (runtime?.agent.runs.length ?? 0) > 0;
 
   return [
-    { label: "Forecast Agent", status: hasRuns ? "On Track" : "Waiting", detail: hasRuns ? "Updated recently" : "No run recorded", tone: hasRuns ? "good" : "watch", icon: LineChart },
-    { label: "Collections Agent", status: hasRuns ? "On Track" : "Waiting", detail: "Replies and promises", tone: hasRuns ? "good" : "watch", icon: UsersRound },
-    { label: "Supplier Agent", status: "At Risk", detail: "Payments due", tone: "watch", icon: BriefcaseBusiness },
-    { label: "Audit Agent", status: hasRuns ? "On Track" : "Waiting", detail: hasRuns ? "Trace metadata ready" : "No trace recorded", tone: hasRuns ? "good" : "neutral", icon: ShieldCheck },
+    { id: "forecast-agent", label: "Forecast Agent", status: hasRuns ? "On Track" : "Waiting", detail: hasRuns ? "Updated recently" : "No run recorded", tone: hasRuns ? "good" : "watch", icon: LineChart },
+    { id: "collections-agent", label: "Collections Agent", status: hasRuns ? "On Track" : "Waiting", detail: "Replies and promises", tone: hasRuns ? "good" : "watch", icon: UsersRound },
+    { id: "supplier-agent", label: "Supplier Agent", status: "At Risk", detail: "Payments due", tone: "watch", icon: BriefcaseBusiness },
+    { id: "audit-agent", label: "Audit Agent", status: hasRuns ? "On Track" : "Waiting", detail: hasRuns ? "Trace metadata ready" : "No trace recorded", tone: hasRuns ? "good" : "neutral", icon: ShieldCheck },
   ];
 }
 
@@ -3380,11 +3382,11 @@ function buildAgentTimeline(runtime: Cp3ForecastCockpitState | null, ingestionSt
   const checkpoints = runtime?.agent.checkpoints ?? [];
 
   return [
-    { title: "Read new source data", body: sourceCount > 0 ? `${sourceCount} source files are available for this case.` : "Waiting for source evidence to be available.", time: "Now", tone: sourceCount > 0 ? "good" : "watch", icon: FileText },
-    { title: "Updated forecast", body: runtime?.forecast.run ? `${runtime.forecast.run.pointCount} projection points loaded.` : "No persisted forecast run is available yet.", time: runtime?.forecast.run?.createdAt ? formatShortDate(runtime.forecast.run.createdAt) : "Pending", tone: runtime?.forecast.run ? "good" : "watch", icon: LineChart },
-    { title: "Drafted recommendations", body: runtime?.actionPlan.recommendedActions.length ? `${runtime.actionPlan.recommendedActions.length} recommended actions are ready for approval.` : "Recommendations will appear after the action plan is persisted.", time: "Pending", tone: runtime?.actionPlan.recommendedActions.length ? "good" : "watch", icon: ClipboardCheck },
-    { title: "Human approval gate", body: "Outbound provider actions require approval before execution.", time: "Always on", tone: "good", icon: ShieldCheck },
-    { title: "Learned from outcome", body: checkpoints.length > 0 || runs.length > 0 ? "Agent checkpoints are recorded for review." : "Outcome learning waits for replies, payments, or call transcripts.", time: "Next", tone: checkpoints.length > 0 ? "good" : "neutral", icon: Sparkles },
+    { id: "source-readiness", title: "Read new source data", body: sourceCount > 0 ? `${sourceCount} source files are available for this case.` : "Waiting for source evidence to be available.", time: "Now", tone: sourceCount > 0 ? "good" : "watch", icon: FileText },
+    { id: "forecast-refresh", title: "Updated forecast", body: runtime?.forecast.run ? `${runtime.forecast.run.pointCount} projection points loaded.` : "No persisted forecast run is available yet.", time: runtime?.forecast.run?.createdAt ? formatShortDate(runtime.forecast.run.createdAt) : "Pending", tone: runtime?.forecast.run ? "good" : "watch", icon: LineChart },
+    { id: "recommendation-drafts", title: "Drafted recommendations", body: runtime?.actionPlan.recommendedActions.length ? `${runtime.actionPlan.recommendedActions.length} recommended actions are ready for approval.` : "Recommendations will appear after the action plan is persisted.", time: "Pending", tone: runtime?.actionPlan.recommendedActions.length ? "good" : "watch", icon: ClipboardCheck },
+    { id: "human-approval-gate", title: "Human approval gate", body: "Outbound provider actions require approval before execution.", time: "Always on", tone: "good", icon: ShieldCheck },
+    { id: "outcome-learning", title: "Learned from outcome", body: checkpoints.length > 0 || runs.length > 0 ? "Agent checkpoints are recorded for review." : "Outcome learning waits for replies, payments, or call transcripts.", time: "Next", tone: checkpoints.length > 0 ? "good" : "neutral", icon: Sparkles },
   ];
 }
 

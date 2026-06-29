@@ -78,6 +78,25 @@ Verify:
 - No console errors.
 - No horizontal overflow on desktop or mobile widths.
 
+### Local QA Evidence 2026-06-29
+
+Verified on `http://127.0.0.1:3108` through Chrome extension control:
+
+- Overview rendered the live risk story, live intake control, Northstar actions,
+  and persisted recommendation-agent activity.
+- `POST /api/product/demo-intake` processed the sample finance pack with `4`
+  files, `5` agent checkpoints, `9` recommendations, and no outbound provider
+  execution.
+- Actions rendered populated draft preview, real edit dialog, approval/reject
+  controls, execution-memory panel, approved-test-call guardrail, and manual
+  outcome-memory control.
+- Approving `act_northstar_cfo_email` persisted via the product route and did
+  not send email or place a call.
+- Recording an outcome persisted via the product route and refreshed activity
+  state.
+- A fresh Chrome render after the final UI key fix reported no console warnings
+  or errors on Overview or Actions.
+
 ## Upload And Event Loop
 
 If CP8 runtime intake is available:

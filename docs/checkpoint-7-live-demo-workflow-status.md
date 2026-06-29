@@ -170,7 +170,11 @@ Merge commits:
   746448e Merge checkpoint 7 cockpit UI lane
   e7f68e4 Merge checkpoint 7 QA evidence lane
 Deployment URL: https://agentic-cashflow-management.vercel.app
-Production deployment id: pending push/deploy verification
+Production deployment id: `dpl_GPv74WoP7eYq2EwMAdyDaF2WgSD8`
+Production deployment URL:
+  https://agentic-cashflow-management-5vlsbz9ji.vercel.app
+Production alias status:
+  Vercel reported `READY` and aliased the deployment to the public product URL.
 Commands passed:
   npm run typecheck
   npm run build

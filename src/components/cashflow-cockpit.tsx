@@ -250,7 +250,11 @@ export function CashflowCockpit() {
   const selectedAction = viewModel.actions.find((action) => action.id === selectedActionId) ?? viewModel.actions[0];
 
   useEffect(() => {
-    if (!selectedActionId && viewModel.actions.length > 0) {
+    if (viewModel.actions.length === 0) {
+      return;
+    }
+
+    if (!selectedActionId || !viewModel.actions.some((action) => action.id === selectedActionId)) {
       setSelectedActionId(viewModel.actions[0].id);
     }
   }, [selectedActionId, viewModel.actions]);

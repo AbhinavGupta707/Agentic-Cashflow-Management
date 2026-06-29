@@ -65,6 +65,7 @@ async function main() {
       customerIds,
       invoiceIds,
     );
+    await resetSeededApprovalAudits(dataApi, transactionId, tenantId);
     await seedMemoryFacts(dataApi, transactionId, tenantId, companyId, customerIds);
   });
 
@@ -1090,6 +1091,33 @@ async function seedApprovalRecord(
       }),
       expiresAt: action.scheduledFor,
       idempotencyKey: `approval:${action.externalId}`,
+    },
+    { transactionId },
+  );
+}
+
+async function resetSeededApprovalAudits(
+  dataApi: AuroraDataApiClient,
+  transactionId: string,
+  tenantId: string,
+) {
+  await dataApi.executeMutation(
+    `
+      delete from audit_log
+      where tenant_id = :tenantId
+        and target_type = 'approval_record'
+        and action like 'cp4.approval.%'
+        and target_id in (
+          select ar.id
+          from approval_records ar
+          join actions a on a.id = ar.action_id and a.tenant_id = ar.tenant_id
+          where ar.tenant_id = :tenantId
+            and a.metadata->>'seed' = :seedMarker
+        )
+    `,
+    {
+      tenantId,
+      seedMarker: SEED_MARKER,
     },
     { transactionId },
   );

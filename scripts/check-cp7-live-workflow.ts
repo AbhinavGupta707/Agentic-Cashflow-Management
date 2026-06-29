@@ -95,13 +95,13 @@ const uiStrictChecks: readonly TextCheck[] = [
   {
     label: "UI calls approve mutation",
     path: "src/components/cashflow-cockpit.tsx",
-    patterns: [/\/approve\b/, /approveProductAction|handleApprove|onApprove/],
+    patterns: [/\/approve\b|\/\$\{decision\}/, /mutateActionDecision\(actionId,\s*"approve"\)|onApprove/],
     mode: "strict",
   },
   {
     label: "UI calls reject mutation",
     path: "src/components/cashflow-cockpit.tsx",
-    patterns: [/\/reject\b/, /rejectProductAction|handleReject|onReject/],
+    patterns: [/\/reject\b|\/\$\{decision\}/, /mutateActionDecision\(actionId,\s*"reject"\)|onReject/],
     mode: "strict",
   },
   {

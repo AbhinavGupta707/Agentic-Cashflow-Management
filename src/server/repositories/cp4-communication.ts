@@ -811,7 +811,7 @@ async function findActionContext(
         i.id as invoice_id,
         i.external_id as invoice_external_id,
         i.invoice_number,
-        round((i.amount - i.amount_paid) * 100)::bigint as outstanding_cents,
+        round(i.amount_due * 100)::bigint as outstanding_cents,
         approval.id as approval_id,
         approval.state as approval_state,
         approval.requested_at::text as approval_requested_at,

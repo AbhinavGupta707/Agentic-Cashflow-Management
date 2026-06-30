@@ -1,73 +1,153 @@
-# Agentic Cashflow Management
+# RunwayOps
 
-Production-oriented H0 hackathon build for an agentic cash management platform.
+**RunwayOps is an agentic cashflow operating system for SMB founders and finance
+operators. It turns invoices, obligations, customer behavior, and follow-up
+history into runway forecasts, ranked recovery actions, human-approved
+execution, and learned customer memory.**
 
-The product helps a small business ingest invoices, customer data, obligations, documents, emails, and communication outcomes; forecast cash shortages; recommend recoverable-cash actions; request human approval; execute approved outreach; and learn from customer behaviour.
+Built for the H0 Hackathon on **Vercel** and **Amazon Aurora PostgreSQL**.
 
-## Canonical Repository
+## Live Demo
 
-This repository is the canonical project workspace.
+- Product: <https://agentic-cashflow-management.vercel.app>
+- Source: <https://github.com/AbhinavGupta707/Agentic-Cashflow-Management>
+- Primary AWS database: **Amazon Aurora PostgreSQL**
+- Vercel project: `agentic-cashflow-management`
+
+## Architecture
+
+![RunwayOps architecture](docs/submission-assets/runwayops-architecture-devpost.png)
+
+RunwayOps is designed as an operating loop rather than a passive dashboard:
 
 ```text
-GitHub: https://github.com/AbhinavGupta707/Agentic-Cashflow-Management.git
-Vercel project: agentic-cashflow-management
-AWS primary database: Aurora PostgreSQL
+Financial evidence
+-> Aurora-backed source of truth
+-> deterministic forecast
+-> customer memory
+-> ranked recovery plan
+-> tailored outreach
+-> human approval
+-> provider execution
+-> audit trail
+-> learned memory
+-> better next action
 ```
 
-## Current Status
+## What It Does
 
-Checkpoint 0 setup is documented in:
+RunwayOps helps a small business finance team:
 
-- `docs/checkpoint-0-setup.md`
-- `docs/h0-full-functionality-orchestration-plan.md`
+1. Upload or refresh cashflow evidence.
+2. Store source provenance and normalized operating state.
+3. Forecast cash pressure and payroll risk from deterministic financial facts.
+4. Retrieve customer behavior memory.
+5. Rank receivables recovery actions by cash impact, timing, and likelihood.
+6. Generate tailored email drafts or call scripts.
+7. Require human approval before outbound action.
+8. Record provider execution evidence and outcomes.
+9. Convert outcomes into customer memory for the next recommendation.
 
-Checkpoint 1 is integrated in this repository:
+The user-facing product is intentionally simple: current risk, forecast
+pressure, recommended action, approval queue, customer memory, and agent
+activity. The backend carries the richer operating model.
 
-- Next.js App Router cockpit shell
-- Aurora PostgreSQL schema and migration runner
-- RDS Data API client, repository read path, API route, demo seed, and smoke script
-- QA runbook and no-key provider states
+## Demo Walkthrough
 
-Checkpoint 1 QA and setup details are documented in:
+Judges can use the deployed product without local setup:
 
-- `docs/checkpoint-1-status.md`
+1. Open the live app at <https://agentic-cashflow-management.vercel.app>.
+2. Start on **Overview** to see the Marlow & Finch payroll-risk case, current
+   cash pressure, recoverable cash, and recommended actions.
+3. Open **Forecasts** to inspect deterministic runway scenarios calculated from
+   Aurora-backed financial facts.
+4. Open **Actions** and select a customer action such as Ember Lane or Northstar
+   to review the agent rationale, customer memory, draft/call script, approval
+   controls, and provider readiness.
+5. Approve an action to see the approval-gated execution flow.
+6. Open **Agent Activity** to see finance import evidence, forecast
+   recomputation, recommendation ranking, draft generation, approval records,
+   provider readiness, and memory updates.
 
-Checkpoint 2 is integrated, merged, and live-Aurora/S3 verified:
+## Why It Is Agentic
 
-- `docs/checkpoint-2-orchestration.md`
-- `docs/checkpoint-2-status.md`
-- CP2 focuses on live upload/manual ingestion, S3 source storage, Aurora
-  provenance, event inbox processing, and no-key/live smoke verification.
+RunwayOps is not a chatbot on top of a dashboard. It separates financial truth
+from agentic judgment:
 
-Checkpoint 3 is integrated, merged, and live-Aurora verified:
+| Layer | Responsibility |
+| --- | --- |
+| Deterministic finance | Cash balances, obligations, invoice timing, low points, runway, scenario math |
+| Aurora PostgreSQL | Source of truth for finance state, approvals, provider state, memory, audit |
+| LangGraph agents | Forecast, memory retrieval, collections planning, audit checkpoints |
+| Fireworks AI | Risk explanations, outreach drafts, call scripts, outcome extraction |
+| Human approval | Required before outbound customer contact |
+| Provider layer | Twilio/Gmail execution surfaces with provider evidence and guardrails |
 
-- `docs/checkpoint-3-orchestration.md`
-- `docs/checkpoint-3-status.md`
-- CP3 focuses on deterministic forecasting from Aurora facts, LangGraph
-  persisted runs/checkpoints, Fireworks no-key/live provider posture, LangSmith
-  trace posture, and approval-ready action handoff without Gmail or voice
-  execution.
+The model prepares and explains action. Aurora carries the money, approval,
+provider, audit, and memory state.
 
-Checkpoint 4 is the next planned build slice: approval-gated Gmail OAuth,
-draft/send execution, provider IDs, replies, and communication outcome capture.
-The CP4 QA/docs lane adds offline contract and Gmail no-key smoke commands:
+## Technical Architecture
 
-- `docs/checkpoint-4-orchestration.md`
-- `docs/checkpoint-4-status.md`
-- `npm run check:cp4`
-- `npm run smoke:gmail:no-key`
+| Component | What It Does | Why It Matters |
+| --- | --- | --- |
+| Vercel + Next.js | Hosts the public product UI and API route runtime | Full-stack deployed product, not a static front end |
+| React + Tailwind CSS | Premium cockpit for Overview, Forecasts, Actions, Customers, Agent Activity | Makes complex finance operations understandable to a founder |
+| Next.js API routes | Product overview, action detail, approvals, draft editing, scenarios, customers, agent activity, intake, uploads, voice status, TwiML, webhooks | Keeps product state and workflow behind explicit backend contracts |
+| Amazon Aurora PostgreSQL | Primary operational database for finance facts, forecasts, actions, approvals, providers, memory, checkpoints, and audit | Satisfies the H0 AWS Database requirement and makes state durable |
+| Amazon RDS Data API | Serverless SQL access from Vercel to Aurora | Avoids long-lived database connections in the web runtime |
+| Amazon S3 | Source-file provenance for uploaded finance packs | Makes intake auditable and replayable |
+| LangGraph | Durable agent orchestration and checkpoints | Makes the agent workflow inspectable and resumable |
+| Fireworks AI | Structured recommendations, draft generation, call scripts, explanations, extraction | Makes AI useful without letting it invent financial totals |
+| LangSmith | Trace readiness and observability hooks | Supports evaluation and debugging of agent behavior |
+| Twilio | Approval-gated live test-call path and voice execution state | Demonstrates insight becoming controlled provider action |
+| Gmail OAuth foundation | Approval-gated draft/send surface and communication outcome model | Extends the same safety model to email |
 
-Checkpoint 5/6 QA and setup details are documented in:
+## AWS Database Usage
 
-- `docs/checkpoint-5-6-orchestration.md`
-- `docs/checkpoint-5-6-status.md`
-- `docs/live-demo-runbook.md`
-- `npm run check:cp5`
-- `npm run check:cp6`
-- `npm run smoke:voice:no-key`
-- `npm run smoke:product:no-key`
+The database used for the H0 requirement is **Amazon Aurora PostgreSQL**.
 
-## Fresh Clone Setup
+It is not Aurora DSQL and it is not DynamoDB.
+
+Aurora stores the complete operating model:
+
+- companies, users, cash accounts, customers, and contacts
+- invoices, obligations, payments, and source files
+- event inbox rows and event ledger rows
+- forecast runs and forecast points
+- action plans, recommended actions, and approval records
+- communication drafts, provider executions, voice calls, and transcripts
+- customer memory chunks, including pgvector-ready memory primitives
+- agent runs, agent checkpoints, trace metadata, and audit logs
+
+The Vercel runtime talks to Aurora through the Amazon RDS Data API, which keeps
+the serverless deployment model compatible with a production-grade relational
+backend.
+
+## Safety Model
+
+Cashflow automation is high stakes, so RunwayOps is deliberately bounded:
+
+- The LLM does not invent financial totals.
+- Forecasting and scenario math are deterministic.
+- Outbound actions require approval.
+- Provider IDs and outcomes are shown only when backed by provider evidence.
+- Twilio live calls are gated by approval, live flags, credentials, and a
+  configured test destination.
+- Gmail is OAuth/connection-gated.
+- Secrets belong in `.env.local` locally and Vercel environment variables in
+  production, never in Git.
+
+## Tech Stack
+
+- **Frontend:** Next.js 15, React 19, TypeScript, Tailwind CSS, lucide-react
+- **Deployment:** Vercel
+- **AWS:** Aurora PostgreSQL, Amazon RDS Data API, Amazon S3, AWS IAM/OIDC
+- **Agents:** LangGraph, Fireworks AI, LangSmith readiness
+- **Providers:** Twilio voice path, Gmail OAuth foundation
+- **Validation and tooling:** Zod, TSX scripts, contract checks, no-key smoke
+  tests
+
+## Local Development
 
 Clone only the canonical repository:
 
@@ -75,122 +155,80 @@ Clone only the canonical repository:
 git clone https://github.com/AbhinavGupta707/Agentic-Cashflow-Management.git
 cd Agentic-Cashflow-Management
 cp .env.example .env.local
-```
-
-Install dependencies and run the local app with:
-
-```bash
 npm install
 npm run dev
 ```
 
-The local app and repository scripts load `.env.local`. Keep secrets out of Git. Production
-runtime variables belong in the Vercel project `agentic-cashflow-management`.
+The local app loads `.env.local`. Keep secrets out of Git.
 
-## Checkpoint 1 Verification Contract
-
-Checkpoint 1 supports:
+Useful local commands:
 
 ```bash
 npm run typecheck
 npm run build
 npm run db:migrate:dry
 npm run db:seed:dry
-npm run db:migrate
-npm run db:seed
-npm run smoke
-```
-
-Checkpoint 2 adds an offline contract check for the ingestion/event-inbox
-foundation:
-
-```bash
-npm run check:cp2
-```
-
-Checkpoint 3 adds an offline contract check for the forecast/action/agent
-handoff foundation:
-
-```bash
-npm run check:cp3
-```
-
-Checkpoint 4 adds an offline contract check for approval-gated email/Gmail
-handoff plus a no-key Gmail smoke:
-
-```bash
-npm run check:cp4
-npm run smoke:gmail:no-key
-```
-
-Checkpoint 5/6 adds offline checks for approval-gated voice, product API/UI
-readiness, and no-key provider posture:
-
-```bash
-npm run check:cp5
-npm run check:cp6
-npm run smoke:voice:no-key
 npm run smoke:product:no-key
 ```
 
-During CP5/CP6 integration, require the product API route surface explicitly:
+Live Aurora migration, seed, and smoke commands require AWS/Aurora Data API
+environment variables. Without the relevant credentials, scripts should report
+clear unavailable/no-key states rather than fake success.
+
+## Verification
+
+The repository includes checkpoint contract and smoke scripts for the major
+runtime surfaces:
 
 ```bash
-CP6_REQUIRE_PRODUCT_ROUTES=true npm run check:cp6
+npm run check:cp2
+npm run check:cp3
+npm run check:cp4
+npm run check:cp5
+npm run check:cp6
+npm run check:cp7
+npm run check:cp8
+npm run smoke:gmail:no-key
+npm run smoke:voice:no-key
+npm run smoke:cp8:intake:no-key
 ```
 
-Live CP2 upload and processor smoke requires Aurora and S3 env. Live CP3
-deterministic forecast and agent graph smokes require Aurora env. Fireworks and
-LangSmith keys are optional CP3 live-provider checks; missing keys must produce
-honest unavailable/tracing-disabled states instead of fake provider success.
-Gmail, ElevenLabs, and Twilio keys are not required for CP3. Gmail credentials
-are optional for CP4 local/no-key verification and must be configured only for
-explicit live Gmail smoke.
-
-For CP5/CP6, live Gmail OAuth linkage is not required. Fireworks, LangSmith,
-Twilio, ElevenLabs, and Aurora are optional live checks: missing keys, invalid
-ElevenLabs credentials, expired AWS sessions, and absent OAuth connections must
-produce honest unavailable states, not fake provider success. Live Twilio voice
-smoke requires configured Twilio env, an explicit `TWILIO_TEST_TO_NUMBER`, and a
-recorded human approval before placing exactly one test call.
-
-CP4 Gmail env names are:
-
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
-- `GOOGLE_GMAIL_SCOPES`
-- `GMAIL_ENCRYPTION_KEY`
-- `GMAIL_SENDER_EMAIL`
-- `GMAIL_TEST_RECIPIENT` for live smoke only
-
-Allowed CP4 Gmail scopes are
-`https://www.googleapis.com/auth/gmail.compose` and
-`https://www.googleapis.com/auth/gmail.send`. Do not commit, log, expose, or
-store plaintext OAuth access/refresh tokens. Live Gmail smoke may create exactly
-one draft or send exactly one approved test message only after credentials and
-the recipient are explicit.
-
-Live migration, seed, and smoke commands require Aurora Data API credentials.
-Without local AWS credentials or required Aurora settings, scripts should fail
-with clear no-key messages instead of silently falling back to fixtures.
-
-Manual CP5/CP6 browser QA should judge the four reference-style product screens:
-Overview, Actions, Customers, and Forecasts. Use `Ui References/1.png` through
-`Ui References/4.png` plus `docs/checkpoint-5-6-status.md` as the checklist.
-
-Checkpoint 8 is the final product and submission-readiness pass:
-
-- `docs/checkpoint-8-final-product-orchestration.md`
-- `docs/checkpoint-8-final-product-status.md`
-- `docs/h0-final-submission-package.md`
-- `docs/h0-architecture-diagram.md`
-- `docs/checkpoint-8-final-qa-checklist.md`
-- `npm run check:cp8`
-
-During final CP8 master integration, hard-fail any remaining final-runtime proof
-gaps with:
+For final product readiness:
 
 ```bash
 CP8_REQUIRE_FINAL_PRODUCT=true npm run check:cp8
 ```
+
+## Submission Assets
+
+- Devpost draft: [`docs/devpost-submission-draft.md`](docs/devpost-submission-draft.md)
+- Final submission package: [`docs/h0-final-submission-package.md`](docs/h0-final-submission-package.md)
+- Architecture source doc: [`docs/h0-architecture-diagram.md`](docs/h0-architecture-diagram.md)
+- Uploadable architecture image:
+  [`docs/submission-assets/runwayops-architecture-devpost.png`](docs/submission-assets/runwayops-architecture-devpost.png)
+- Editable SVG architecture:
+  [`docs/submission-assets/runwayops-architecture.svg`](docs/submission-assets/runwayops-architecture.svg)
+- Demo runbook: [`docs/live-demo-runbook.md`](docs/live-demo-runbook.md)
+
+## Implementation History
+
+The project was built in checkpointed slices:
+
+- **Checkpoint 0:** canonical repo setup and orchestration plan.
+- **Checkpoint 1:** Next.js cockpit shell, Aurora schema, migration/seed path,
+  RDS Data API client, and first smoke checks.
+- **Checkpoint 2:** live upload/manual ingestion, S3 source storage, Aurora
+  provenance, event inbox processing, and no-key/live smoke verification.
+- **Checkpoint 3:** deterministic forecasting from Aurora facts, LangGraph
+  persisted runs/checkpoints, Fireworks readiness, LangSmith trace posture, and
+  approval-ready handoff.
+- **Checkpoint 4:** approval-gated Gmail/provider contracts and communication
+  outcome model.
+- **Checkpoint 5/6:** voice/provider readiness, product API routes, and core
+  product UI surfaces.
+- **Checkpoint 7:** live demo workflow, Fireworks-backed previews, approval
+  interaction polish, and Agent Activity evidence.
+- **Checkpoint 8:** final product pass with live intake loop, execution/memory
+  polish, final QA, architecture assets, and submission package.
+
+Detailed checkpoint docs live under [`docs/`](docs/).
